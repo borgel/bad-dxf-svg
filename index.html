@@ -261,11 +261,419 @@
         </div>
     </div>
 
-    <script type="module">
-        // Import dxf library from CDN
-        import * as dxf from 'https://unpkg.com/dxf@5.3.1/dist/dxf.esm.js';
+    <script>
+        // ============================================
+        // Inline DXF Parser - No external dependencies
+        // ============================================
 
-        // DOM elements
+        class DxfParser {
+            parse(dxfString) {
+                const lines = dxfString.split(/\r?\n/);
+                const entities = [];
+                let i = 0;
+
+                // Find ENTITIES section
+                while (i < lines.length) {
+                    if (lines[i].trim() === 'ENTITIES') {
+                        i++;
+                        break;
+                    }
+                    i++;
+                }
+
+                // Parse entities
+                while (i < lines.length) {
+                    const code = parseInt(lines[i].trim(), 10);
+                    const value = lines[i + 1] ? lines[i + 1].trim() : '';
+
+                    if (code === 0) {
+                        if (value === 'ENDSEC' || value === 'EOF') break;
+
+                        const entityType = value;
+                        i += 2;
+                        const entity = this.parseEntity(entityType, lines, i);
+                        if (entity) {
+                            entities.push(entity.entity);
+                            i = entity.nextIndex;
+                        }
+                    } else {
+                        i += 2;
+                    }
+                }
+
+                return { entities };
+            }
+
+            parseEntity(type, lines, startIndex) {
+                const entity = { type };
+                let i = startIndex;
+
+                const groupValues = {};
+
+                while (i < lines.length) {
+                    const code = parseInt(lines[i].trim(), 10);
+                    const value = lines[i + 1] ? lines[i + 1].trim() : '';
+
+                    if (code === 0) {
+                        // Next entity or end of section
+                        break;
+                    }
+
+                    // Store group codes
+                    if (!groupValues[code]) {
+                        groupValues[code] = [];
+                    }
+                    groupValues[code].push(value);
+
+                    i += 2;
+                }
+
+                // Parse based on entity type
+                switch (type) {
+                    case 'LINE':
+                        entity.start = {
+                            x: parseFloat(groupValues[10]?.[0] || 0),
+                            y: parseFloat(groupValues[20]?.[0] || 0)
+                        };
+                        entity.end = {
+                            x: parseFloat(groupValues[11]?.[0] || 0),
+                            y: parseFloat(groupValues[21]?.[0] || 0)
+                        };
+                        break;
+
+                    case 'CIRCLE':
+                        entity.center = {
+                            x: parseFloat(groupValues[10]?.[0] || 0),
+                            y: parseFloat(groupValues[20]?.[0] || 0)
+                        };
+                        entity.radius = parseFloat(groupValues[40]?.[0] || 0);
+                        break;
+
+                    case 'ARC':
+                        entity.center = {
+                            x: parseFloat(groupValues[10]?.[0] || 0),
+                            y: parseFloat(groupValues[20]?.[0] || 0)
+                        };
+                        entity.radius = parseFloat(groupValues[40]?.[0] || 0);
+                        entity.startAngle = parseFloat(groupValues[50]?.[0] || 0);
+                        entity.endAngle = parseFloat(groupValues[51]?.[0] || 0);
+                        break;
+
+                    case 'ELLIPSE':
+                        entity.center = {
+                            x: parseFloat(groupValues[10]?.[0] || 0),
+                            y: parseFloat(groupValues[20]?.[0] || 0)
+                        };
+                        entity.majorAxis = {
+                            x: parseFloat(groupValues[11]?.[0] || 1),
+                            y: parseFloat(groupValues[21]?.[0] || 0)
+                        };
+                        entity.ratio = parseFloat(groupValues[40]?.[0] || 1);
+                        entity.startAngle = parseFloat(groupValues[41]?.[0] || 0);
+                        entity.endAngle = parseFloat(groupValues[42]?.[0] || Math.PI * 2);
+                        break;
+
+                    case 'LWPOLYLINE':
+                    case 'POLYLINE':
+                        entity.vertices = [];
+                        entity.closed = (parseInt(groupValues[70]?.[0] || 0) & 1) === 1;
+
+                        if (type === 'LWPOLYLINE') {
+                            const xVals = groupValues[10] || [];
+                            const yVals = groupValues[20] || [];
+                            const bulges = groupValues[42] || [];
+
+                            for (let j = 0; j < xVals.length; j++) {
+                                entity.vertices.push({
+                                    x: parseFloat(xVals[j]),
+                                    y: parseFloat(yVals[j]),
+                                    bulge: parseFloat(bulges[j] || 0)
+                                });
+                            }
+                        }
+                        break;
+
+                    case 'SPLINE':
+                        entity.controlPoints = [];
+                        entity.degree = parseInt(groupValues[71]?.[0] || 3);
+
+                        const splineX = groupValues[10] || [];
+                        const splineY = groupValues[20] || [];
+
+                        for (let j = 0; j < splineX.length; j++) {
+                            entity.controlPoints.push({
+                                x: parseFloat(splineX[j]),
+                                y: parseFloat(splineY[j])
+                            });
+                        }
+                        break;
+
+                    default:
+                        return { entity: null, nextIndex: i };
+                }
+
+                return { entity, nextIndex: i };
+            }
+        }
+
+        // ============================================
+        // SVG Generator
+        // ============================================
+
+        class SvgGenerator {
+            constructor(entities) {
+                this.entities = entities;
+                this.bounds = this.calculateBounds();
+            }
+
+            calculateBounds() {
+                let minX = Infinity, minY = Infinity;
+                let maxX = -Infinity, maxY = -Infinity;
+
+                const updateBounds = (x, y) => {
+                    if (isFinite(x) && isFinite(y)) {
+                        minX = Math.min(minX, x);
+                        minY = Math.min(minY, y);
+                        maxX = Math.max(maxX, x);
+                        maxY = Math.max(maxY, y);
+                    }
+                };
+
+                for (const entity of this.entities) {
+                    switch (entity.type) {
+                        case 'LINE':
+                            updateBounds(entity.start.x, entity.start.y);
+                            updateBounds(entity.end.x, entity.end.y);
+                            break;
+                        case 'CIRCLE':
+                            updateBounds(entity.center.x - entity.radius, entity.center.y - entity.radius);
+                            updateBounds(entity.center.x + entity.radius, entity.center.y + entity.radius);
+                            break;
+                        case 'ARC':
+                            updateBounds(entity.center.x - entity.radius, entity.center.y - entity.radius);
+                            updateBounds(entity.center.x + entity.radius, entity.center.y + entity.radius);
+                            break;
+                        case 'ELLIPSE':
+                            const majorLen = Math.sqrt(entity.majorAxis.x ** 2 + entity.majorAxis.y ** 2);
+                            const minorLen = majorLen * entity.ratio;
+                            updateBounds(entity.center.x - majorLen, entity.center.y - minorLen);
+                            updateBounds(entity.center.x + majorLen, entity.center.y + minorLen);
+                            break;
+                        case 'LWPOLYLINE':
+                        case 'POLYLINE':
+                            for (const v of entity.vertices) {
+                                updateBounds(v.x, v.y);
+                            }
+                            break;
+                        case 'SPLINE':
+                            for (const p of entity.controlPoints) {
+                                updateBounds(p.x, p.y);
+                            }
+                            break;
+                    }
+                }
+
+                if (!isFinite(minX)) { minX = 0; minY = 0; maxX = 100; maxY = 100; }
+
+                return { minX, minY, maxX, maxY };
+            }
+
+            generateSvg(scale = 1) {
+                const { minX, minY, maxX, maxY } = this.bounds;
+                const width = (maxX - minX) * scale;
+                const height = (maxY - minY) * scale;
+                const padding = Math.max(width, height) * 0.02;
+
+                let svgContent = '';
+
+                for (const entity of this.entities) {
+                    svgContent += this.entityToSvg(entity);
+                }
+
+                return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="${minX - padding} ${-(maxY + padding)} ${(maxX - minX) + padding * 2} ${(maxY - minY) + padding * 2}"
+     width="${width}mm"
+     height="${height}mm">
+  <g transform="scale(1, -1)" stroke="#000000" stroke-width="0.5" fill="none">
+${svgContent}  </g>
+</svg>`;
+            }
+
+            entityToSvg(entity) {
+                switch (entity.type) {
+                    case 'LINE':
+                        return `    <line x1="${entity.start.x}" y1="${entity.start.y}" x2="${entity.end.x}" y2="${entity.end.y}"/>\n`;
+
+                    case 'CIRCLE':
+                        return `    <circle cx="${entity.center.x}" cy="${entity.center.y}" r="${entity.radius}"/>\n`;
+
+                    case 'ARC':
+                        return this.arcToPath(entity);
+
+                    case 'ELLIPSE':
+                        return this.ellipseToPath(entity);
+
+                    case 'LWPOLYLINE':
+                    case 'POLYLINE':
+                        return this.polylineToPath(entity);
+
+                    case 'SPLINE':
+                        return this.splineToPath(entity);
+
+                    default:
+                        return '';
+                }
+            }
+
+            arcToPath(entity) {
+                const { center, radius, startAngle, endAngle } = entity;
+                const startRad = startAngle * Math.PI / 180;
+                const endRad = endAngle * Math.PI / 180;
+
+                const x1 = center.x + radius * Math.cos(startRad);
+                const y1 = center.y + radius * Math.sin(startRad);
+                const x2 = center.x + radius * Math.cos(endRad);
+                const y2 = center.y + radius * Math.sin(endRad);
+
+                // Determine arc direction and large arc flag
+                let sweepAngle = endAngle - startAngle;
+                if (sweepAngle < 0) sweepAngle += 360;
+                const largeArc = sweepAngle > 180 ? 1 : 0;
+
+                return `    <path d="M ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2}"/>\n`;
+            }
+
+            ellipseToPath(entity) {
+                const { center, majorAxis, ratio, startAngle, endAngle } = entity;
+                const rx = Math.sqrt(majorAxis.x ** 2 + majorAxis.y ** 2);
+                const ry = rx * ratio;
+                const rotation = Math.atan2(majorAxis.y, majorAxis.x) * 180 / Math.PI;
+
+                // Full ellipse
+                if (Math.abs(endAngle - startAngle - Math.PI * 2) < 0.01 || (startAngle === 0 && endAngle === 0)) {
+                    return `    <ellipse cx="${center.x}" cy="${center.y}" rx="${rx}" ry="${ry}" transform="rotate(${rotation} ${center.x} ${center.y})"/>\n`;
+                }
+
+                // Partial ellipse (arc)
+                const x1 = center.x + rx * Math.cos(startAngle);
+                const y1 = center.y + ry * Math.sin(startAngle);
+                const x2 = center.x + rx * Math.cos(endAngle);
+                const y2 = center.y + ry * Math.sin(endAngle);
+
+                let sweepAngle = endAngle - startAngle;
+                if (sweepAngle < 0) sweepAngle += Math.PI * 2;
+                const largeArc = sweepAngle > Math.PI ? 1 : 0;
+
+                return `    <path d="M ${x1} ${y1} A ${rx} ${ry} ${rotation} ${largeArc} 1 ${x2} ${y2}"/>\n`;
+            }
+
+            polylineToPath(entity) {
+                if (entity.vertices.length < 2) return '';
+
+                let d = `M ${entity.vertices[0].x} ${entity.vertices[0].y}`;
+
+                for (let i = 0; i < entity.vertices.length - 1; i++) {
+                    const v1 = entity.vertices[i];
+                    const v2 = entity.vertices[i + 1];
+
+                    if (v1.bulge && v1.bulge !== 0) {
+                        // Arc segment
+                        const arc = this.bulgeToArc(v1, v2, v1.bulge);
+                        d += ` A ${arc.radius} ${arc.radius} 0 ${arc.largeArc} ${arc.sweep} ${v2.x} ${v2.y}`;
+                    } else {
+                        // Line segment
+                        d += ` L ${v2.x} ${v2.y}`;
+                    }
+                }
+
+                // Handle closed polyline
+                if (entity.closed && entity.vertices.length > 2) {
+                    const vLast = entity.vertices[entity.vertices.length - 1];
+                    const vFirst = entity.vertices[0];
+
+                    if (vLast.bulge && vLast.bulge !== 0) {
+                        const arc = this.bulgeToArc(vLast, vFirst, vLast.bulge);
+                        d += ` A ${arc.radius} ${arc.radius} 0 ${arc.largeArc} ${arc.sweep} ${vFirst.x} ${vFirst.y}`;
+                    } else {
+                        d += ' Z';
+                    }
+                }
+
+                return `    <path d="${d}"/>\n`;
+            }
+
+            bulgeToArc(v1, v2, bulge) {
+                const dx = v2.x - v1.x;
+                const dy = v2.y - v1.y;
+                const chord = Math.sqrt(dx * dx + dy * dy);
+                const sagitta = Math.abs(bulge) * chord / 2;
+                const radius = (chord * chord / 4 + sagitta * sagitta) / (2 * sagitta);
+
+                return {
+                    radius,
+                    largeArc: Math.abs(bulge) > 1 ? 1 : 0,
+                    sweep: bulge > 0 ? 1 : 0
+                };
+            }
+
+            splineToPath(entity) {
+                if (entity.controlPoints.length < 2) return '';
+
+                // Approximate spline with line segments through interpolated points
+                const points = this.interpolateSpline(entity.controlPoints, entity.degree);
+
+                let d = `M ${points[0].x} ${points[0].y}`;
+                for (let i = 1; i < points.length; i++) {
+                    d += ` L ${points[i].x} ${points[i].y}`;
+                }
+
+                return `    <path d="${d}"/>\n`;
+            }
+
+            interpolateSpline(controlPoints, degree) {
+                // Simple Catmull-Rom spline interpolation
+                if (controlPoints.length < 2) return controlPoints;
+
+                const result = [];
+                const segments = 20; // Points per segment
+
+                for (let i = 0; i < controlPoints.length - 1; i++) {
+                    const p0 = controlPoints[Math.max(0, i - 1)];
+                    const p1 = controlPoints[i];
+                    const p2 = controlPoints[i + 1];
+                    const p3 = controlPoints[Math.min(controlPoints.length - 1, i + 2)];
+
+                    for (let t = 0; t < segments; t++) {
+                        const s = t / segments;
+                        const s2 = s * s;
+                        const s3 = s2 * s;
+
+                        const x = 0.5 * ((2 * p1.x) +
+                            (-p0.x + p2.x) * s +
+                            (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * s2 +
+                            (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * s3);
+
+                        const y = 0.5 * ((2 * p1.y) +
+                            (-p0.y + p2.y) * s +
+                            (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * s2 +
+                            (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * s3);
+
+                        result.push({ x, y });
+                    }
+                }
+
+                // Add final point
+                result.push(controlPoints[controlPoints.length - 1]);
+
+                return result;
+            }
+        }
+
+        // ============================================
+        // Main Application
+        // ============================================
+
         const dropzone = document.getElementById('dropzone');
         const fileInput = document.getElementById('fileInput');
         const unitSelect = document.getElementById('unitSelect');
@@ -276,276 +684,151 @@
         const previewFilename = document.getElementById('previewFilename');
         const dimensions = document.getElementById('dimensions');
 
-        let currentSvgBlob = null;
+        let currentSvgString = null;
         let currentFilename = '';
+        let currentDxfText = null;
 
         // Event listeners
-        dropzone.addEventListener('click', () => fileInput.click());
-        dropzone.addEventListener('dragover', handleDragOver);
-        dropzone.addEventListener('dragleave', handleDragLeave);
-        dropzone.addEventListener('drop', handleDrop);
-        fileInput.addEventListener('change', handleFileSelect);
-        downloadBtn.addEventListener('click', downloadSvg);
-        unitSelect.addEventListener('change', () => {
-            if (currentFilename && fileInput.files[0]) {
-                processFile(fileInput.files[0]);
+        dropzone.addEventListener('click', function(e) {
+            if (e.target !== fileInput) {
+                fileInput.click();
             }
         });
 
-        function handleDragOver(e) {
+        dropzone.addEventListener('dragover', function(e) {
             e.preventDefault();
+            e.stopPropagation();
             dropzone.classList.add('dragover');
-        }
+        });
 
-        function handleDragLeave(e) {
+        dropzone.addEventListener('dragleave', function(e) {
             e.preventDefault();
+            e.stopPropagation();
             dropzone.classList.remove('dragover');
-        }
+        });
 
-        function handleDrop(e) {
+        dropzone.addEventListener('drop', function(e) {
             e.preventDefault();
+            e.stopPropagation();
             dropzone.classList.remove('dragover');
             const files = e.dataTransfer.files;
             if (files.length > 0) {
-                processFile(files[0]);
+                handleFile(files[0]);
             }
-        }
+        });
 
-        function handleFileSelect(e) {
+        fileInput.addEventListener('change', function(e) {
             const files = e.target.files;
             if (files.length > 0) {
-                processFile(files[0]);
+                handleFile(files[0]);
             }
-        }
+        });
+
+        downloadBtn.addEventListener('click', downloadSvg);
+
+        unitSelect.addEventListener('change', function() {
+            if (currentDxfText) {
+                processDxf(currentDxfText, currentFilename);
+            }
+        });
 
         function showStatus(message, type) {
             status.textContent = message;
             status.className = 'status ' + type;
         }
 
-        function clearStatus() {
-            status.className = 'status';
-        }
-
-        async function processFile(file) {
+        function handleFile(file) {
             if (!file.name.toLowerCase().endsWith('.dxf')) {
                 showStatus('Please select a DXF file.', 'error');
                 return;
             }
 
             currentFilename = file.name.replace(/\.dxf$/i, '');
-            showStatus('Processing...', 'info');
+            showStatus('Reading file...', 'info');
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                currentDxfText = e.target.result;
+                processDxf(currentDxfText, currentFilename);
+            };
+            reader.onerror = function() {
+                showStatus('Error reading file.', 'error');
+            };
+            reader.readAsText(file);
+        }
+
+        function processDxf(dxfText, filename) {
+            showStatus('Parsing DXF...', 'info');
 
             try {
-                const text = await file.text();
-                const parsed = dxf.parseString(text);
+                const parser = new DxfParser();
+                const parsed = parser.parse(dxfText);
 
-                if (!parsed || !parsed.entities || parsed.entities.length === 0) {
-                    showStatus('No geometry found in DXF file. Make sure it contains supported entities.', 'error');
+                if (!parsed.entities || parsed.entities.length === 0) {
+                    showStatus('No supported geometry found in DXF file.', 'error');
                     return;
                 }
 
-                // Get bounding box to determine units
-                const bounds = calculateBounds(parsed.entities, parsed.blocks);
+                const generator = new SvgGenerator(parsed.entities);
+                const bounds = generator.bounds;
                 const width = bounds.maxX - bounds.minX;
                 const height = bounds.maxY - bounds.minY;
 
-                // Determine scale factor based on unit selection
+                // Determine scale based on unit selection
                 let scale = 1;
                 let detectedUnit = 'mm';
                 const unitSetting = unitSelect.value;
 
                 if (unitSetting === 'auto') {
-                    // Auto-detect units based on dimensions
                     const maxDim = Math.max(width, height);
                     if (maxDim < 1) {
-                        // Very small dimensions, likely inches
-                        scale = 25.4; // Convert to mm
-                        detectedUnit = 'in (converted to mm)';
+                        scale = 25.4;
+                        detectedUnit = 'inches (converted to mm)';
                     } else if (maxDim > 2000) {
-                        // Very large, likely already mm
                         scale = 1;
                         detectedUnit = 'mm';
                     } else {
-                        // Reasonable size, assume mm
                         scale = 1;
                         detectedUnit = 'mm';
                     }
                 } else if (unitSetting === 'in') {
-                    scale = 25.4; // Convert inches to mm
-                    detectedUnit = 'in (converted to mm)';
+                    scale = 25.4;
+                    detectedUnit = 'inches (converted to mm)';
                 } else {
                     scale = 1;
                     detectedUnit = 'mm';
                 }
 
-                // Generate SVG using library
-                const svgString = dxf.toSVG(parsed);
-
-                // Post-process SVG for Glowforge
-                const processedSvg = postProcessSvg(svgString, bounds, scale);
+                currentSvgString = generator.generateSvg(scale);
 
                 // Calculate final dimensions
                 const finalWidth = (width * scale).toFixed(2);
                 const finalHeight = (height * scale).toFixed(2);
 
                 // Update UI
-                previewArea.innerHTML = processedSvg;
-                previewFilename.textContent = file.name;
+                previewArea.innerHTML = currentSvgString;
+                previewFilename.textContent = filename + '.dxf';
                 dimensions.textContent = `${finalWidth} × ${finalHeight} mm (detected: ${detectedUnit})`;
                 previewContainer.classList.add('visible');
-
-                // Create blob for download
-                currentSvgBlob = new Blob([processedSvg], { type: 'image/svg+xml' });
                 downloadBtn.disabled = false;
 
-                clearStatus();
                 showStatus(`Converted successfully! Found ${parsed.entities.length} entities.`, 'success');
 
             } catch (error) {
                 console.error('Error processing DXF:', error);
-                showStatus(`Error processing file: ${error.message}`, 'error');
+                showStatus('Error processing DXF: ' + error.message, 'error');
                 downloadBtn.disabled = true;
             }
         }
 
-        function calculateBounds(entities, blocks) {
-            let minX = Infinity, minY = Infinity;
-            let maxX = -Infinity, maxY = -Infinity;
-
-            function updateBounds(x, y) {
-                if (x !== undefined && y !== undefined && isFinite(x) && isFinite(y)) {
-                    minX = Math.min(minX, x);
-                    minY = Math.min(minY, y);
-                    maxX = Math.max(maxX, x);
-                    maxY = Math.max(maxY, y);
-                }
-            }
-
-            function processEntity(entity) {
-                if (!entity) return;
-
-                switch (entity.type) {
-                    case 'LINE':
-                        if (entity.start) updateBounds(entity.start.x, entity.start.y);
-                        if (entity.end) updateBounds(entity.end.x, entity.end.y);
-                        break;
-                    case 'CIRCLE':
-                        if (entity.center && entity.radius) {
-                            updateBounds(entity.center.x - entity.radius, entity.center.y - entity.radius);
-                            updateBounds(entity.center.x + entity.radius, entity.center.y + entity.radius);
-                        }
-                        break;
-                    case 'ARC':
-                        if (entity.center && entity.radius) {
-                            // Approximate arc bounds with circle bounds
-                            updateBounds(entity.center.x - entity.radius, entity.center.y - entity.radius);
-                            updateBounds(entity.center.x + entity.radius, entity.center.y + entity.radius);
-                        }
-                        break;
-                    case 'ELLIPSE':
-                        if (entity.center && entity.majorAxisEndPoint) {
-                            const rx = Math.sqrt(
-                                entity.majorAxisEndPoint.x ** 2 + entity.majorAxisEndPoint.y ** 2
-                            );
-                            const ry = rx * (entity.axisRatio || 1);
-                            updateBounds(entity.center.x - rx, entity.center.y - ry);
-                            updateBounds(entity.center.x + rx, entity.center.y + ry);
-                        }
-                        break;
-                    case 'LWPOLYLINE':
-                    case 'POLYLINE':
-                        if (entity.vertices) {
-                            entity.vertices.forEach(v => updateBounds(v.x, v.y));
-                        }
-                        break;
-                    case 'SPLINE':
-                        if (entity.controlPoints) {
-                            entity.controlPoints.forEach(p => updateBounds(p.x, p.y));
-                        }
-                        break;
-                    case 'INSERT':
-                        // Handle block inserts
-                        if (blocks && entity.name && blocks[entity.name]) {
-                            const block = blocks[entity.name];
-                            if (block.entities) {
-                                block.entities.forEach(processEntity);
-                            }
-                        }
-                        if (entity.position) {
-                            updateBounds(entity.position.x, entity.position.y);
-                        }
-                        break;
-                }
-            }
-
-            entities.forEach(processEntity);
-
-            // Handle edge case of empty or invalid bounds
-            if (!isFinite(minX)) minX = 0;
-            if (!isFinite(minY)) minY = 0;
-            if (!isFinite(maxX)) maxX = 100;
-            if (!isFinite(maxY)) maxY = 100;
-
-            return { minX, minY, maxX, maxY };
-        }
-
-        function postProcessSvg(svgString, bounds, scale) {
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(svgString, 'image/svg+xml');
-            const svg = doc.documentElement;
-
-            // Calculate dimensions
-            const width = (bounds.maxX - bounds.minX) * scale;
-            const height = (bounds.maxY - bounds.minY) * scale;
-
-            // Set viewBox and dimensions with proper units for Glowforge
-            svg.setAttribute('viewBox', `${bounds.minX} ${-bounds.maxY} ${bounds.maxX - bounds.minX} ${bounds.maxY - bounds.minY}`);
-            svg.setAttribute('width', `${width}mm`);
-            svg.setAttribute('height', `${height}mm`);
-            svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-
-            // Process all elements for Glowforge compatibility
-            const elements = svg.querySelectorAll('*');
-            elements.forEach(el => {
-                // Ensure strokes have fill="none" for cutting
-                if (el.hasAttribute('stroke') || el.tagName === 'line' || el.tagName === 'path' ||
-                    el.tagName === 'circle' || el.tagName === 'ellipse' || el.tagName === 'polyline' ||
-                    el.tagName === 'polygon' || el.tagName === 'rect') {
-
-                    // Set fill to none for cutting operations
-                    if (!el.hasAttribute('fill') || el.getAttribute('fill') === '') {
-                        el.setAttribute('fill', 'none');
-                    }
-
-                    // Ensure stroke is set
-                    if (!el.hasAttribute('stroke') || el.getAttribute('stroke') === 'none' || el.getAttribute('stroke') === '') {
-                        el.setAttribute('stroke', '#000000');
-                    }
-
-                    // Set a reasonable stroke width
-                    if (!el.hasAttribute('stroke-width')) {
-                        el.setAttribute('stroke-width', '0.5');
-                    }
-                }
-
-                // Remove text elements (not supported)
-                if (el.tagName === 'text' || el.tagName === 'tspan') {
-                    el.remove();
-                }
-            });
-
-            const serializer = new XMLSerializer();
-            return serializer.serializeToString(svg);
-        }
-
         function downloadSvg() {
-            if (!currentSvgBlob) return;
+            if (!currentSvgString) return;
 
-            const url = URL.createObjectURL(currentSvgBlob);
+            const blob = new Blob([currentSvgString], { type: 'image/svg+xml' });
+            const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `${currentFilename}.svg`;
+            a.download = currentFilename + '.svg';
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
