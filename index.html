@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DXF to SVG Converter for Laser Cutting</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 8px;
+            font-size: 1.8rem;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 24px;
+            font-size: 0.95rem;
+        }
+
+        .dropzone {
+            border: 3px dashed #ccc;
+            border-radius: 12px;
+            padding: 48px 24px;
+            text-align: center;
+            background: #fff;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin-bottom: 20px;
+        }
+
+        .dropzone:hover,
+        .dropzone.dragover {
+            border-color: #007bff;
+            background: #f0f7ff;
+        }
+
+        .dropzone-text {
+            color: #666;
+            font-size: 1.1rem;
+        }
+
+        .dropzone-text strong {
+            color: #007bff;
+        }
+
+        .dropzone input[type="file"] {
+            display: none;
+        }
+
+        .controls {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .control-group label {
+            color: #555;
+            font-size: 0.9rem;
+        }
+
+        select {
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            background: #fff;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-primary {
+            background: #007bff;
+            color: #fff;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: #0056b3;
+        }
+
+        .btn-primary:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .status {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .status.error {
+            display: block;
+            background: #fee;
+            color: #c00;
+            border: 1px solid #fcc;
+        }
+
+        .status.success {
+            display: block;
+            background: #efe;
+            color: #060;
+            border: 1px solid #cfc;
+        }
+
+        .status.info {
+            display: block;
+            background: #eef;
+            color: #006;
+            border: 1px solid #ccf;
+        }
+
+        .preview-container {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 12px;
+            padding: 20px;
+            display: none;
+        }
+
+        .preview-container.visible {
+            display: block;
+        }
+
+        .preview-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .preview-title {
+            font-size: 1rem;
+            color: #333;
+        }
+
+        .dimensions {
+            font-size: 0.9rem;
+            color: #666;
+            background: #f5f5f5;
+            padding: 6px 12px;
+            border-radius: 4px;
+        }
+
+        .preview-area {
+            background: #fafafa;
+            border: 1px solid #eee;
+            border-radius: 8px;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 300px;
+            overflow: auto;
+        }
+
+        .preview-area svg {
+            max-width: 100%;
+            max-height: 500px;
+            background: #fff;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .filename {
+            font-family: monospace;
+            background: #f0f0f0;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+
+        .supported-entities {
+            margin-top: 24px;
+            padding: 16px;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            color: #666;
+        }
+
+        .supported-entities strong {
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>DXF to SVG Converter</h1>
+        <p class="subtitle">Convert DXF files to SVG for Glowforge and other laser cutters</p>
+
+        <div class="dropzone" id="dropzone">
+            <p class="dropzone-text">
+                <strong>Drop a DXF file here</strong><br>
+                or click to browse
+            </p>
+            <input type="file" id="fileInput" accept=".dxf">
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label for="unitSelect">Input units:</label>
+                <select id="unitSelect">
+                    <option value="auto">Auto-detect</option>
+                    <option value="mm">Millimeters (mm)</option>
+                    <option value="in">Inches</option>
+                </select>
+            </div>
+            <button class="btn btn-primary" id="downloadBtn" disabled>Download SVG</button>
+        </div>
+
+        <div class="status" id="status"></div>
+
+        <div class="preview-container" id="previewContainer">
+            <div class="preview-header">
+                <span class="preview-title">Preview: <span class="filename" id="previewFilename"></span></span>
+                <span class="dimensions" id="dimensions"></span>
+            </div>
+            <div class="preview-area" id="previewArea"></div>
+        </div>
+
+        <div class="supported-entities">
+            <strong>Supported DXF entities:</strong> LINE, CIRCLE, ELLIPSE, ARC, LWPOLYLINE, POLYLINE, SPLINE<br>
+            <strong>Note:</strong> TEXT and DIMENSION entities are not supported. Convert text to paths in your CAD software before exporting.
+        </div>
+    </div>
+
+    <script type="module">
+        // Import dxf library from CDN
+        import * as dxf from 'https://unpkg.com/dxf@5.3.1/dist/dxf.esm.js';
+
+        // DOM elements
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('fileInput');
+        const unitSelect = document.getElementById('unitSelect');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const status = document.getElementById('status');
+        const previewContainer = document.getElementById('previewContainer');
+        const previewArea = document.getElementById('previewArea');
+        const previewFilename = document.getElementById('previewFilename');
+        const dimensions = document.getElementById('dimensions');
+
+        let currentSvgBlob = null;
+        let currentFilename = '';
+
+        // Event listeners
+        dropzone.addEventListener('click', () => fileInput.click());
+        dropzone.addEventListener('dragover', handleDragOver);
+        dropzone.addEventListener('dragleave', handleDragLeave);
+        dropzone.addEventListener('drop', handleDrop);
+        fileInput.addEventListener('change', handleFileSelect);
+        downloadBtn.addEventListener('click', downloadSvg);
+        unitSelect.addEventListener('change', () => {
+            if (currentFilename && fileInput.files[0]) {
+                processFile(fileInput.files[0]);
+            }
+        });
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            dropzone.classList.add('dragover');
+        }
+
+        function handleDragLeave(e) {
+            e.preventDefault();
+            dropzone.classList.remove('dragover');
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            dropzone.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                processFile(files[0]);
+            }
+        }
+
+        function handleFileSelect(e) {
+            const files = e.target.files;
+            if (files.length > 0) {
+                processFile(files[0]);
+            }
+        }
+
+        function showStatus(message, type) {
+            status.textContent = message;
+            status.className = 'status ' + type;
+        }
+
+        function clearStatus() {
+            status.className = 'status';
+        }
+
+        async function processFile(file) {
+            if (!file.name.toLowerCase().endsWith('.dxf')) {
+                showStatus('Please select a DXF file.', 'error');
+                return;
+            }
+
+            currentFilename = file.name.replace(/\.dxf$/i, '');
+            showStatus('Processing...', 'info');
+
+            try {
+                const text = await file.text();
+                const parsed = dxf.parseString(text);
+
+                if (!parsed || !parsed.entities || parsed.entities.length === 0) {
+                    showStatus('No geometry found in DXF file. Make sure it contains supported entities.', 'error');
+                    return;
+                }
+
+                // Get bounding box to determine units
+                const bounds = calculateBounds(parsed.entities, parsed.blocks);
+                const width = bounds.maxX - bounds.minX;
+                const height = bounds.maxY - bounds.minY;
+
+                // Determine scale factor based on unit selection
+                let scale = 1;
+                let detectedUnit = 'mm';
+                const unitSetting = unitSelect.value;
+
+                if (unitSetting === 'auto') {
+                    // Auto-detect units based on dimensions
+                    const maxDim = Math.max(width, height);
+                    if (maxDim < 1) {
+                        // Very small dimensions, likely inches
+                        scale = 25.4; // Convert to mm
+                        detectedUnit = 'in (converted to mm)';
+                    } else if (maxDim > 2000) {
+                        // Very large, likely already mm
+                        scale = 1;
+                        detectedUnit = 'mm';
+                    } else {
+                        // Reasonable size, assume mm
+                        scale = 1;
+                        detectedUnit = 'mm';
+                    }
+                } else if (unitSetting === 'in') {
+                    scale = 25.4; // Convert inches to mm
+                    detectedUnit = 'in (converted to mm)';
+                } else {
+                    scale = 1;
+                    detectedUnit = 'mm';
+                }
+
+                // Generate SVG using library
+                const svgString = dxf.toSVG(parsed);
+
+                // Post-process SVG for Glowforge
+                const processedSvg = postProcessSvg(svgString, bounds, scale);
+
+                // Calculate final dimensions
+                const finalWidth = (width * scale).toFixed(2);
+                const finalHeight = (height * scale).toFixed(2);
+
+                // Update UI
+                previewArea.innerHTML = processedSvg;
+                previewFilename.textContent = file.name;
+                dimensions.textContent = `${finalWidth} × ${finalHeight} mm (detected: ${detectedUnit})`;
+                previewContainer.classList.add('visible');
+
+                // Create blob for download
+                currentSvgBlob = new Blob([processedSvg], { type: 'image/svg+xml' });
+                downloadBtn.disabled = false;
+
+                clearStatus();
+                showStatus(`Converted successfully! Found ${parsed.entities.length} entities.`, 'success');
+
+            } catch (error) {
+                console.error('Error processing DXF:', error);
+                showStatus(`Error processing file: ${error.message}`, 'error');
+                downloadBtn.disabled = true;
+            }
+        }
+
+        function calculateBounds(entities, blocks) {
+            let minX = Infinity, minY = Infinity;
+            let maxX = -Infinity, maxY = -Infinity;
+
+            function updateBounds(x, y) {
+                if (x !== undefined && y !== undefined && isFinite(x) && isFinite(y)) {
+                    minX = Math.min(minX, x);
+                    minY = Math.min(minY, y);
+                    maxX = Math.max(maxX, x);
+                    maxY = Math.max(maxY, y);
+                }
+            }
+
+            function processEntity(entity) {
+                if (!entity) return;
+
+                switch (entity.type) {
+                    case 'LINE':
+                        if (entity.start) updateBounds(entity.start.x, entity.start.y);
+                        if (entity.end) updateBounds(entity.end.x, entity.end.y);
+                        break;
+                    case 'CIRCLE':
+                        if (entity.center && entity.radius) {
+                            updateBounds(entity.center.x - entity.radius, entity.center.y - entity.radius);
+                            updateBounds(entity.center.x + entity.radius, entity.center.y + entity.radius);
+                        }
+                        break;
+                    case 'ARC':
+                        if (entity.center && entity.radius) {
+                            // Approximate arc bounds with circle bounds
+                            updateBounds(entity.center.x - entity.radius, entity.center.y - entity.radius);
+                            updateBounds(entity.center.x + entity.radius, entity.center.y + entity.radius);
+                        }
+                        break;
+                    case 'ELLIPSE':
+                        if (entity.center && entity.majorAxisEndPoint) {
+                            const rx = Math.sqrt(
+                                entity.majorAxisEndPoint.x ** 2 + entity.majorAxisEndPoint.y ** 2
+                            );
+                            const ry = rx * (entity.axisRatio || 1);
+                            updateBounds(entity.center.x - rx, entity.center.y - ry);
+                            updateBounds(entity.center.x + rx, entity.center.y + ry);
+                        }
+                        break;
+                    case 'LWPOLYLINE':
+                    case 'POLYLINE':
+                        if (entity.vertices) {
+                            entity.vertices.forEach(v => updateBounds(v.x, v.y));
+                        }
+                        break;
+                    case 'SPLINE':
+                        if (entity.controlPoints) {
+                            entity.controlPoints.forEach(p => updateBounds(p.x, p.y));
+                        }
+                        break;
+                    case 'INSERT':
+                        // Handle block inserts
+                        if (blocks && entity.name && blocks[entity.name]) {
+                            const block = blocks[entity.name];
+                            if (block.entities) {
+                                block.entities.forEach(processEntity);
+                            }
+                        }
+                        if (entity.position) {
+                            updateBounds(entity.position.x, entity.position.y);
+                        }
+                        break;
+                }
+            }
+
+            entities.forEach(processEntity);
+
+            // Handle edge case of empty or invalid bounds
+            if (!isFinite(minX)) minX = 0;
+            if (!isFinite(minY)) minY = 0;
+            if (!isFinite(maxX)) maxX = 100;
+            if (!isFinite(maxY)) maxY = 100;
+
+            return { minX, minY, maxX, maxY };
+        }
+
+        function postProcessSvg(svgString, bounds, scale) {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(svgString, 'image/svg+xml');
+            const svg = doc.documentElement;
+
+            // Calculate dimensions
+            const width = (bounds.maxX - bounds.minX) * scale;
+            const height = (bounds.maxY - bounds.minY) * scale;
+
+            // Set viewBox and dimensions with proper units for Glowforge
+            svg.setAttribute('viewBox', `${bounds.minX} ${-bounds.maxY} ${bounds.maxX - bounds.minX} ${bounds.maxY - bounds.minY}`);
+            svg.setAttribute('width', `${width}mm`);
+            svg.setAttribute('height', `${height}mm`);
+            svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+
+            // Process all elements for Glowforge compatibility
+            const elements = svg.querySelectorAll('*');
+            elements.forEach(el => {
+                // Ensure strokes have fill="none" for cutting
+                if (el.hasAttribute('stroke') || el.tagName === 'line' || el.tagName === 'path' ||
+                    el.tagName === 'circle' || el.tagName === 'ellipse' || el.tagName === 'polyline' ||
+                    el.tagName === 'polygon' || el.tagName === 'rect') {
+
+                    // Set fill to none for cutting operations
+                    if (!el.hasAttribute('fill') || el.getAttribute('fill') === '') {
+                        el.setAttribute('fill', 'none');
+                    }
+
+                    // Ensure stroke is set
+                    if (!el.hasAttribute('stroke') || el.getAttribute('stroke') === 'none' || el.getAttribute('stroke') === '') {
+                        el.setAttribute('stroke', '#000000');
+                    }
+
+                    // Set a reasonable stroke width
+                    if (!el.hasAttribute('stroke-width')) {
+                        el.setAttribute('stroke-width', '0.5');
+                    }
+                }
+
+                // Remove text elements (not supported)
+                if (el.tagName === 'text' || el.tagName === 'tspan') {
+                    el.remove();
+                }
+            });
+
+            const serializer = new XMLSerializer();
+            return serializer.serializeToString(svg);
+        }
+
+        function downloadSvg() {
+            if (!currentSvgBlob) return;
+
+            const url = URL.createObjectURL(currentSvgBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${currentFilename}.svg`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>
