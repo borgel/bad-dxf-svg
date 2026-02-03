@@ -291,10 +291,12 @@
 
                         const entityType = value;
                         i += 2;
-                        const entity = this.parseEntity(entityType, lines, i);
-                        if (entity) {
-                            entities.push(entity.entity);
-                            i = entity.nextIndex;
+                        const result = this.parseEntity(entityType, lines, i);
+                        if (result) {
+                            i = result.nextIndex;
+                            if (result.entity) {
+                                entities.push(result.entity);
+                            }
                         }
                     } else {
                         i += 2;
