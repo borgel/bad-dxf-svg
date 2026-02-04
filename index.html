@@ -936,17 +936,21 @@ ${svgContent}  </g>
 
         // Drag selection state
         let isDragging = false;
+        let didDrag = false;
         let dragStartX = 0;
         let dragStartY = 0;
         let selectionBox = null;
+        let dragStartTarget = null;
 
         function setupSvgInteraction() {
             const svgElement = previewArea.querySelector('svg');
             if (!svgElement) return;
 
+            // Store element-to-hitArea mapping
+            const elementMap = new Map();
+
             // Make all geometry elements selectable
             const geometryElements = svgElement.querySelectorAll('line, circle, ellipse, path, polyline, polygon, rect');
-            const gElement = svgElement.querySelector('g');
 
             geometryElements.forEach((el, index) => {
                 el.classList.add('selectable');
@@ -957,67 +961,61 @@ ${svgContent}  </g>
                 hitArea.classList.remove('selectable');
                 hitArea.classList.add('hit-area');
                 hitArea.removeAttribute('data-element-id');
+                hitArea.dataset.forElement = index;
 
                 // Insert hit area before the element
                 el.parentNode.insertBefore(hitArea, el);
 
-                // Handle click on both the element and its hit area
-                function handleElementClick(e) {
-                    e.stopPropagation();
-                    if (isDragging) return;
+                // Map hit area to element
+                elementMap.set(hitArea, el);
+            });
 
-                    if (e.shiftKey) {
-                        // Multi-select with shift
-                        if (selectedElements.has(el)) {
-                            el.classList.remove('selected');
-                            selectedElements.delete(el);
-                        } else {
-                            el.classList.add('selected');
-                            selectedElements.add(el);
-                        }
+            // Handle element selection
+            function selectElement(el, shiftKey) {
+                if (shiftKey) {
+                    // Multi-select with shift
+                    if (selectedElements.has(el)) {
+                        el.classList.remove('selected');
+                        selectedElements.delete(el);
                     } else {
-                        // Single select - clear others first
-                        selectedElements.forEach(selected => {
-                            selected.classList.remove('selected');
-                        });
-                        selectedElements.clear();
-
                         el.classList.add('selected');
                         selectedElements.add(el);
                     }
+                } else {
+                    // Single select - clear others first
+                    selectedElements.forEach(selected => {
+                        selected.classList.remove('selected');
+                    });
+                    selectedElements.clear();
 
-                    updateSelectionInfo();
+                    el.classList.add('selected');
+                    selectedElements.add(el);
                 }
-
-                el.addEventListener('click', handleElementClick);
-                hitArea.addEventListener('click', handleElementClick);
-            });
+                updateSelectionInfo();
+            }
 
             // Drag selection on preview area
             previewArea.addEventListener('mousedown', function(e) {
-                // Only start drag if clicking on background/svg, not on elements
-                if (e.target === previewArea || e.target === svgElement ||
-                    e.target.tagName === 'g' || e.target.classList.contains('hit-area')) {
+                if (e.button !== 0) return; // Only left mouse button
 
-                    // Don't start drag on hit-area click (let it handle selection)
-                    if (e.target.classList.contains('hit-area')) return;
+                const rect = previewArea.getBoundingClientRect();
+                dragStartX = e.clientX - rect.left;
+                dragStartY = e.clientY - rect.top;
+                dragStartTarget = e.target;
+                isDragging = true;
+                didDrag = false;
 
-                    isDragging = true;
-                    const rect = previewArea.getBoundingClientRect();
-                    dragStartX = e.clientX - rect.left;
-                    dragStartY = e.clientY - rect.top;
+                // Create selection box (hidden until mouse moves)
+                selectionBox = document.createElement('div');
+                selectionBox.className = 'selection-box';
+                selectionBox.style.left = dragStartX + 'px';
+                selectionBox.style.top = dragStartY + 'px';
+                selectionBox.style.width = '0px';
+                selectionBox.style.height = '0px';
+                selectionBox.style.display = 'none';
+                previewArea.appendChild(selectionBox);
 
-                    // Create selection box
-                    selectionBox = document.createElement('div');
-                    selectionBox.className = 'selection-box';
-                    selectionBox.style.left = dragStartX + 'px';
-                    selectionBox.style.top = dragStartY + 'px';
-                    selectionBox.style.width = '0px';
-                    selectionBox.style.height = '0px';
-                    previewArea.appendChild(selectionBox);
-
-                    e.preventDefault();
-                }
+                e.preventDefault();
             });
 
             document.addEventListener('mousemove', function(e) {
@@ -1027,24 +1025,31 @@ ${svgContent}  </g>
                 const currentX = e.clientX - rect.left;
                 const currentY = e.clientY - rect.top;
 
-                const left = Math.min(dragStartX, currentX);
-                const top = Math.min(dragStartY, currentY);
                 const width = Math.abs(currentX - dragStartX);
                 const height = Math.abs(currentY - dragStartY);
 
-                selectionBox.style.left = left + 'px';
-                selectionBox.style.top = top + 'px';
-                selectionBox.style.width = width + 'px';
-                selectionBox.style.height = height + 'px';
+                // Only show box and mark as drag if moved more than 5px
+                if (width > 5 || height > 5) {
+                    didDrag = true;
+                    selectionBox.style.display = 'block';
+
+                    const left = Math.min(dragStartX, currentX);
+                    const top = Math.min(dragStartY, currentY);
+
+                    selectionBox.style.left = left + 'px';
+                    selectionBox.style.top = top + 'px';
+                    selectionBox.style.width = width + 'px';
+                    selectionBox.style.height = height + 'px';
+                }
             });
 
             document.addEventListener('mouseup', function(e) {
-                if (!isDragging || !selectionBox) return;
+                if (!isDragging) return;
 
-                const boxRect = selectionBox.getBoundingClientRect();
+                if (didDrag && selectionBox) {
+                    // It was a drag - do box selection
+                    const boxRect = selectionBox.getBoundingClientRect();
 
-                // Only select if box is larger than 5px (avoid accidental clicks)
-                if (boxRect.width > 5 || boxRect.height > 5) {
                     // Find all elements that intersect with the selection box
                     const allSelectables = svgElement.querySelectorAll('.selectable');
 
@@ -1070,20 +1075,31 @@ ${svgContent}  </g>
                     });
 
                     updateSelectionInfo();
+                } else {
+                    // It was a click - handle element selection or clear
+                    const target = dragStartTarget;
+
+                    if (target.classList.contains('selectable')) {
+                        selectElement(target, e.shiftKey);
+                    } else if (target.classList.contains('hit-area')) {
+                        const el = elementMap.get(target);
+                        if (el) selectElement(el, e.shiftKey);
+                    } else if (target === svgElement || target.tagName.toLowerCase() === 'g' || target === previewArea) {
+                        // Clicked on background - clear selection
+                        if (!e.shiftKey) {
+                            clearSelection();
+                        }
+                    }
                 }
 
-                // Remove selection box
-                selectionBox.remove();
-                selectionBox = null;
+                // Cleanup
+                if (selectionBox) {
+                    selectionBox.remove();
+                    selectionBox = null;
+                }
                 isDragging = false;
-            });
-
-            // Click on SVG background clears selection (only if not dragging)
-            svgElement.addEventListener('click', function(e) {
-                if (isDragging) return;
-                if (e.target === svgElement || e.target.tagName === 'g') {
-                    clearSelection();
-                }
+                didDrag = false;
+                dragStartTarget = null;
             });
 
             // Show color toolbar
