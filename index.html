@@ -295,6 +295,10 @@
         }
 
         /* SVG element selection styles */
+        .preview-area {
+            position: relative;
+        }
+
         .preview-area svg .selectable {
             cursor: pointer;
             transition: filter 0.1s ease;
@@ -306,6 +310,24 @@
 
         .preview-area svg .selected {
             filter: drop-shadow(0 0 4px rgba(0,123,255,0.8));
+        }
+
+        /* Invisible hit area for easier selection */
+        .preview-area svg .hit-area {
+            stroke: transparent;
+            stroke-width: 12;
+            fill: none;
+            pointer-events: stroke;
+            cursor: pointer;
+        }
+
+        /* Selection box (rubber band) */
+        .selection-box {
+            position: absolute;
+            border: 2px dashed #007bff;
+            background: rgba(0, 123, 255, 0.1);
+            pointer-events: none;
+            z-index: 1000;
         }
 
         .select-hint {
@@ -365,7 +387,7 @@
                 <button class="btn btn-clear-selection" id="clearSelectionBtn">Clear selection</button>
             </div>
             <div class="preview-area" id="previewArea"></div>
-            <p class="select-hint">Click elements to select. Shift+click to select multiple. Then choose a color.</p>
+            <p class="select-hint">Click or drag to select elements. Shift+click/drag to add to selection. Then choose a color.</p>
         </div>
 
         <div class="supported-entities">
@@ -900,14 +922,23 @@ ${svgContent}  </g>
             // Update the SVG string from the current DOM state
             const svgElement = previewArea.querySelector('svg');
             if (svgElement) {
-                // Clone the SVG and remove selection classes for export
+                // Clone the SVG and remove selection classes and hit areas for export
                 const clone = svgElement.cloneNode(true);
                 clone.querySelectorAll('.selectable').forEach(el => {
                     el.classList.remove('selectable', 'selected');
                 });
+                clone.querySelectorAll('.hit-area').forEach(el => {
+                    el.remove();
+                });
                 currentSvgString = '<?xml version="1.0" encoding="UTF-8"?>\n' + clone.outerHTML;
             }
         }
+
+        // Drag selection state
+        let isDragging = false;
+        let dragStartX = 0;
+        let dragStartY = 0;
+        let selectionBox = null;
 
         function setupSvgInteraction() {
             const svgElement = previewArea.querySelector('svg');
@@ -915,13 +946,25 @@ ${svgContent}  </g>
 
             // Make all geometry elements selectable
             const geometryElements = svgElement.querySelectorAll('line, circle, ellipse, path, polyline, polygon, rect');
+            const gElement = svgElement.querySelector('g');
 
             geometryElements.forEach((el, index) => {
                 el.classList.add('selectable');
                 el.dataset.elementId = index;
 
-                el.addEventListener('click', function(e) {
+                // Create invisible hit area for easier clicking
+                const hitArea = el.cloneNode(true);
+                hitArea.classList.remove('selectable');
+                hitArea.classList.add('hit-area');
+                hitArea.removeAttribute('data-element-id');
+
+                // Insert hit area before the element
+                el.parentNode.insertBefore(hitArea, el);
+
+                // Handle click on both the element and its hit area
+                function handleElementClick(e) {
                     e.stopPropagation();
+                    if (isDragging) return;
 
                     if (e.shiftKey) {
                         // Multi-select with shift
@@ -944,11 +987,100 @@ ${svgContent}  </g>
                     }
 
                     updateSelectionInfo();
-                });
+                }
+
+                el.addEventListener('click', handleElementClick);
+                hitArea.addEventListener('click', handleElementClick);
             });
 
-            // Click on SVG background clears selection
+            // Drag selection on preview area
+            previewArea.addEventListener('mousedown', function(e) {
+                // Only start drag if clicking on background/svg, not on elements
+                if (e.target === previewArea || e.target === svgElement ||
+                    e.target.tagName === 'g' || e.target.classList.contains('hit-area')) {
+
+                    // Don't start drag on hit-area click (let it handle selection)
+                    if (e.target.classList.contains('hit-area')) return;
+
+                    isDragging = true;
+                    const rect = previewArea.getBoundingClientRect();
+                    dragStartX = e.clientX - rect.left;
+                    dragStartY = e.clientY - rect.top;
+
+                    // Create selection box
+                    selectionBox = document.createElement('div');
+                    selectionBox.className = 'selection-box';
+                    selectionBox.style.left = dragStartX + 'px';
+                    selectionBox.style.top = dragStartY + 'px';
+                    selectionBox.style.width = '0px';
+                    selectionBox.style.height = '0px';
+                    previewArea.appendChild(selectionBox);
+
+                    e.preventDefault();
+                }
+            });
+
+            document.addEventListener('mousemove', function(e) {
+                if (!isDragging || !selectionBox) return;
+
+                const rect = previewArea.getBoundingClientRect();
+                const currentX = e.clientX - rect.left;
+                const currentY = e.clientY - rect.top;
+
+                const left = Math.min(dragStartX, currentX);
+                const top = Math.min(dragStartY, currentY);
+                const width = Math.abs(currentX - dragStartX);
+                const height = Math.abs(currentY - dragStartY);
+
+                selectionBox.style.left = left + 'px';
+                selectionBox.style.top = top + 'px';
+                selectionBox.style.width = width + 'px';
+                selectionBox.style.height = height + 'px';
+            });
+
+            document.addEventListener('mouseup', function(e) {
+                if (!isDragging || !selectionBox) return;
+
+                const boxRect = selectionBox.getBoundingClientRect();
+
+                // Only select if box is larger than 5px (avoid accidental clicks)
+                if (boxRect.width > 5 || boxRect.height > 5) {
+                    // Find all elements that intersect with the selection box
+                    const allSelectables = svgElement.querySelectorAll('.selectable');
+
+                    if (!e.shiftKey) {
+                        // Clear previous selection unless shift is held
+                        selectedElements.forEach(selected => {
+                            selected.classList.remove('selected');
+                        });
+                        selectedElements.clear();
+                    }
+
+                    allSelectables.forEach(el => {
+                        const elRect = el.getBoundingClientRect();
+
+                        // Check if element intersects with selection box
+                        if (elRect.left < boxRect.right &&
+                            elRect.right > boxRect.left &&
+                            elRect.top < boxRect.bottom &&
+                            elRect.bottom > boxRect.top) {
+                            el.classList.add('selected');
+                            selectedElements.add(el);
+                        }
+                    });
+
+                    updateSelectionInfo();
+                }
+
+                // Remove selection box
+                selectionBox.remove();
+                selectionBox = null;
+                isDragging = false;
+            });
+
+            // Click on SVG background clears selection (only if not dragging)
             svgElement.addEventListener('click', function(e) {
+                if (isDragging) return;
                 if (e.target === svgElement || e.target.tagName === 'g') {
                     clearSelection();
                 }
