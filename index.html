@@ -218,6 +218,102 @@
         .supported-entities strong {
             color: #333;
         }
+
+        /* Color selection toolbar */
+        .color-toolbar {
+            display: none;
+            gap: 8px;
+            align-items: center;
+            padding: 12px 16px;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+
+        .color-toolbar.visible {
+            display: flex;
+        }
+
+        .color-toolbar-label {
+            font-size: 0.9rem;
+            color: #555;
+            margin-right: 8px;
+        }
+
+        .color-swatches {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .color-swatch {
+            width: 28px;
+            height: 28px;
+            border-radius: 4px;
+            border: 2px solid #ddd;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .color-swatch:hover {
+            transform: scale(1.1);
+            border-color: #999;
+        }
+
+        .color-swatch.active {
+            border-color: #007bff;
+            box-shadow: 0 0 0 2px rgba(0,123,255,0.3);
+        }
+
+        .custom-color-input {
+            width: 28px;
+            height: 28px;
+            padding: 0;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .selection-info {
+            margin-left: auto;
+            font-size: 0.85rem;
+            color: #666;
+        }
+
+        .btn-clear-selection {
+            padding: 6px 12px;
+            font-size: 0.85rem;
+            background: #f0f0f0;
+            color: #333;
+            border: 1px solid #ccc;
+        }
+
+        .btn-clear-selection:hover {
+            background: #e0e0e0;
+        }
+
+        /* SVG element selection styles */
+        .preview-area svg .selectable {
+            cursor: pointer;
+            transition: filter 0.1s ease;
+        }
+
+        .preview-area svg .selectable:hover {
+            filter: drop-shadow(0 0 3px rgba(0,123,255,0.5));
+        }
+
+        .preview-area svg .selected {
+            filter: drop-shadow(0 0 4px rgba(0,123,255,0.8));
+        }
+
+        .select-hint {
+            font-size: 0.85rem;
+            color: #888;
+            margin-top: 12px;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -252,7 +348,24 @@
                 <span class="preview-title">Preview: <span class="filename" id="previewFilename"></span></span>
                 <span class="dimensions" id="dimensions"></span>
             </div>
+            <div class="color-toolbar" id="colorToolbar">
+                <span class="color-toolbar-label">Set color:</span>
+                <div class="color-swatches" id="colorSwatches">
+                    <div class="color-swatch" data-color="#000000" style="background: #000000;" title="Black"></div>
+                    <div class="color-swatch" data-color="#FF0000" style="background: #FF0000;" title="Red"></div>
+                    <div class="color-swatch" data-color="#00FF00" style="background: #00FF00;" title="Green"></div>
+                    <div class="color-swatch" data-color="#0000FF" style="background: #0000FF;" title="Blue"></div>
+                    <div class="color-swatch" data-color="#FF00FF" style="background: #FF00FF;" title="Magenta"></div>
+                    <div class="color-swatch" data-color="#00FFFF" style="background: #00FFFF;" title="Cyan"></div>
+                    <div class="color-swatch" data-color="#FFA500" style="background: #FFA500;" title="Orange"></div>
+                    <div class="color-swatch" data-color="#800080" style="background: #800080;" title="Purple"></div>
+                    <input type="color" class="custom-color-input" id="customColor" value="#000000" title="Custom color">
+                </div>
+                <span class="selection-info" id="selectionInfo">0 selected</span>
+                <button class="btn btn-clear-selection" id="clearSelectionBtn">Clear selection</button>
+            </div>
             <div class="preview-area" id="previewArea"></div>
+            <p class="select-hint">Click elements to select. Shift+click to select multiple. Then choose a color.</p>
         </div>
 
         <div class="supported-entities">
@@ -686,10 +799,16 @@ ${svgContent}  </g>
         const previewArea = document.getElementById('previewArea');
         const previewFilename = document.getElementById('previewFilename');
         const dimensions = document.getElementById('dimensions');
+        const colorToolbar = document.getElementById('colorToolbar');
+        const colorSwatches = document.getElementById('colorSwatches');
+        const customColor = document.getElementById('customColor');
+        const selectionInfo = document.getElementById('selectionInfo');
+        const clearSelectionBtn = document.getElementById('clearSelectionBtn');
 
         let currentSvgString = null;
         let currentFilename = '';
         let currentDxfText = null;
+        let selectedElements = new Set();
 
         // Event listeners
         dropzone.addEventListener('click', function(e) {
@@ -734,6 +853,110 @@ ${svgContent}  </g>
                 processDxf(currentDxfText, currentFilename);
             }
         });
+
+        // Color swatch click handlers
+        colorSwatches.addEventListener('click', function(e) {
+            const swatch = e.target.closest('.color-swatch');
+            if (swatch) {
+                const color = swatch.dataset.color;
+                applyColorToSelection(color);
+            }
+        });
+
+        customColor.addEventListener('input', function() {
+            if (selectedElements.size > 0) {
+                applyColorToSelection(customColor.value);
+            }
+        });
+
+        clearSelectionBtn.addEventListener('click', clearSelection);
+
+        function applyColorToSelection(color) {
+            if (selectedElements.size === 0) return;
+
+            selectedElements.forEach(el => {
+                el.setAttribute('stroke', color);
+            });
+
+            updateSelectionInfo();
+            updateCurrentSvgString();
+        }
+
+        function clearSelection() {
+            selectedElements.forEach(el => {
+                el.classList.remove('selected');
+            });
+            selectedElements.clear();
+            updateSelectionInfo();
+        }
+
+        function updateSelectionInfo() {
+            const count = selectedElements.size;
+            selectionInfo.textContent = count === 0 ? '0 selected' :
+                count === 1 ? '1 element selected' : `${count} elements selected`;
+        }
+
+        function updateCurrentSvgString() {
+            // Update the SVG string from the current DOM state
+            const svgElement = previewArea.querySelector('svg');
+            if (svgElement) {
+                // Clone the SVG and remove selection classes for export
+                const clone = svgElement.cloneNode(true);
+                clone.querySelectorAll('.selectable').forEach(el => {
+                    el.classList.remove('selectable', 'selected');
+                });
+                currentSvgString = '<?xml version="1.0" encoding="UTF-8"?>\n' + clone.outerHTML;
+            }
+        }
+
+        function setupSvgInteraction() {
+            const svgElement = previewArea.querySelector('svg');
+            if (!svgElement) return;
+
+            // Make all geometry elements selectable
+            const geometryElements = svgElement.querySelectorAll('line, circle, ellipse, path, polyline, polygon, rect');
+
+            geometryElements.forEach((el, index) => {
+                el.classList.add('selectable');
+                el.dataset.elementId = index;
+
+                el.addEventListener('click', function(e) {
+                    e.stopPropagation();
+
+                    if (e.shiftKey) {
+                        // Multi-select with shift
+                        if (selectedElements.has(el)) {
+                            el.classList.remove('selected');
+                            selectedElements.delete(el);
+                        } else {
+                            el.classList.add('selected');
+                            selectedElements.add(el);
+                        }
+                    } else {
+                        // Single select - clear others first
+                        selectedElements.forEach(selected => {
+                            selected.classList.remove('selected');
+                        });
+                        selectedElements.clear();
+
+                        el.classList.add('selected');
+                        selectedElements.add(el);
+                    }
+
+                    updateSelectionInfo();
+                });
+            });
+
+            // Click on SVG background clears selection
+            svgElement.addEventListener('click', function(e) {
+                if (e.target === svgElement || e.target.tagName === 'g') {
+                    clearSelection();
+                }
+            });
+
+            // Show color toolbar
+            colorToolbar.classList.add('visible');
+        }
 
         function showStatus(message, type) {
             status.textContent = message;
@@ -814,6 +1037,11 @@ ${svgContent}  </g>
                 dimensions.textContent = `${finalWidth} × ${finalHeight} mm (detected: ${detectedUnit})`;
                 previewContainer.classList.add('visible');
                 downloadBtn.disabled = false;
+
+                // Clear any previous selection and setup interaction
+                selectedElements.clear();
+                updateSelectionInfo();
+                setupSvgInteraction();
 
                 showStatus(`Converted successfully! Found ${parsed.entities.length} entities.`, 'success');
 
