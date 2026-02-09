@@ -387,7 +387,7 @@
                 <button class="btn btn-clear-selection" id="clearSelectionBtn">Clear selection</button>
             </div>
             <div class="preview-area" id="previewArea"></div>
-            <p class="select-hint">Click or drag to select elements. Shift+click/drag to add to selection. Then choose a color.</p>
+            <p class="select-hint">Click to select, double-click to select connected chain, drag to box-select. Hold Shift to add to selection.</p>
         </div>
 
         <div class="supported-entities">
@@ -641,10 +641,12 @@ ${svgContent}  </g>
             entityToSvg(entity) {
                 switch (entity.type) {
                     case 'LINE':
-                        return `    <line x1="${entity.start.x}" y1="${entity.start.y}" x2="${entity.end.x}" y2="${entity.end.y}"/>\n`;
+                        // Add endpoint data attributes for chain selection
+                        return `    <line x1="${entity.start.x}" y1="${entity.start.y}" x2="${entity.end.x}" y2="${entity.end.y}" data-start-x="${entity.start.x}" data-start-y="${entity.start.y}" data-end-x="${entity.end.x}" data-end-y="${entity.end.y}"/>\n`;
 
                     case 'CIRCLE':
-                        return `    <circle cx="${entity.center.x}" cy="${entity.center.y}" r="${entity.radius}"/>\n`;
+                        // Circles are closed shapes - no endpoints
+                        return `    <circle cx="${entity.center.x}" cy="${entity.center.y}" r="${entity.radius}" data-closed="true"/>\n`;
 
                     case 'ARC':
                         return this.arcToPath(entity);
@@ -679,7 +681,7 @@ ${svgContent}  </g>
                 if (sweepAngle < 0) sweepAngle += 360;
                 const largeArc = sweepAngle > 180 ? 1 : 0;
 
-                return `    <path d="M ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2}"/>\n`;
+                return `    <path d="M ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2}" data-start-x="${x1}" data-start-y="${y1}" data-end-x="${x2}" data-end-y="${y2}"/>\n`;
             }
 
             ellipseToPath(entity) {
@@ -690,7 +692,7 @@ ${svgContent}  </g>
 
                 // Full ellipse
                 if (Math.abs(endAngle - startAngle - Math.PI * 2) < 0.01 || (startAngle === 0 && endAngle === 0)) {
-                    return `    <ellipse cx="${center.x}" cy="${center.y}" rx="${rx}" ry="${ry}" transform="rotate(${rotation} ${center.x} ${center.y})"/>\n`;
+                    return `    <ellipse cx="${center.x}" cy="${center.y}" rx="${rx}" ry="${ry}" transform="rotate(${rotation} ${center.x} ${center.y})" data-closed="true"/>\n`;
                 }
 
                 // Partial ellipse (arc)
@@ -703,13 +705,19 @@ ${svgContent}  </g>
                 if (sweepAngle < 0) sweepAngle += Math.PI * 2;
                 const largeArc = sweepAngle > Math.PI ? 1 : 0;
 
-                return `    <path d="M ${x1} ${y1} A ${rx} ${ry} ${rotation} ${largeArc} 1 ${x2} ${y2}"/>\n`;
+                return `    <path d="M ${x1} ${y1} A ${rx} ${ry} ${rotation} ${largeArc} 1 ${x2} ${y2}" data-start-x="${x1}" data-start-y="${y1}" data-end-x="${x2}" data-end-y="${y2}"/>\n`;
             }
 
             polylineToPath(entity) {
                 if (entity.vertices.length < 2) return '';
 
-                let d = `M ${entity.vertices[0].x} ${entity.vertices[0].y}`;
+                const startX = entity.vertices[0].x;
+                const startY = entity.vertices[0].y;
+                const endVertex = entity.vertices[entity.vertices.length - 1];
+                const endX = endVertex.x;
+                const endY = endVertex.y;
+
+                let d = `M ${startX} ${startY}`;
 
                 for (let i = 0; i < entity.vertices.length - 1; i++) {
                     const v1 = entity.vertices[i];
@@ -736,9 +744,10 @@ ${svgContent}  </g>
                     } else {
                         d += ' Z';
                     }
+                    return `    <path d="${d}" data-closed="true"/>\n`;
                 }
 
-                return `    <path d="${d}"/>\n`;
+                return `    <path d="${d}" data-start-x="${startX}" data-start-y="${startY}" data-end-x="${endX}" data-end-y="${endY}"/>\n`;
             }
 
             bulgeToArc(v1, v2, bulge) {
@@ -761,12 +770,17 @@ ${svgContent}  </g>
                 // Approximate spline with line segments through interpolated points
                 const points = this.interpolateSpline(entity.controlPoints, entity.degree);
 
-                let d = `M ${points[0].x} ${points[0].y}`;
+                const startX = points[0].x;
+                const startY = points[0].y;
+                const endX = points[points.length - 1].x;
+                const endY = points[points.length - 1].y;
+
+                let d = `M ${startX} ${startY}`;
                 for (let i = 1; i < points.length; i++) {
                     d += ` L ${points[i].x} ${points[i].y}`;
                 }
 
-                return `    <path d="${d}"/>\n`;
+                return `    <path d="${d}" data-start-x="${startX}" data-start-y="${startY}" data-end-x="${endX}" data-end-y="${endY}"/>\n`;
             }
 
             interpolateSpline(controlPoints, degree) {
@@ -942,6 +956,72 @@ ${svgContent}  </g>
         let selectionBox = null;
         let dragStartTarget = null;
 
+        // Connection tolerance for finding connected elements (in DXF units)
+        const CONNECTION_TOLERANCE = 0.5;
+
+        // Get endpoints of an element from data attributes
+        function getElementEndpoints(el) {
+            if (el.dataset.closed === 'true') {
+                return null; // Closed shapes have no endpoints
+            }
+
+            const startX = parseFloat(el.dataset.startX);
+            const startY = parseFloat(el.dataset.startY);
+            const endX = parseFloat(el.dataset.endX);
+            const endY = parseFloat(el.dataset.endY);
+
+            if (isNaN(startX) || isNaN(startY) || isNaN(endX) || isNaN(endY)) {
+                return null;
+            }
+
+            return {
+                start: { x: startX, y: startY },
+                end: { x: endX, y: endY }
+            };
+        }
+
+        // Check if two points are close enough to be considered connected
+        function pointsAreClose(p1, p2, tolerance) {
+            const dx = p1.x - p2.x;
+            const dy = p1.y - p2.y;
+            return Math.sqrt(dx * dx + dy * dy) <= tolerance;
+        }
+
+        // Find all elements connected to the given element
+        function findConnectedElements(startElement, allElements) {
+            const connected = new Set([startElement]);
+            const toProcess = [startElement];
+
+            while (toProcess.length > 0) {
+                const current = toProcess.pop();
+                const currentEndpoints = getElementEndpoints(current);
+
+                if (!currentEndpoints) continue;
+
+                // Check all other elements for connections
+                allElements.forEach(el => {
+                    if (connected.has(el)) return;
+
+                    const elEndpoints = getElementEndpoints(el);
+                    if (!elEndpoints) return;
+
+                    // Check if any endpoints match
+                    const isConnected =
+                        pointsAreClose(currentEndpoints.start, elEndpoints.start, CONNECTION_TOLERANCE) ||
+                        pointsAreClose(currentEndpoints.start, elEndpoints.end, CONNECTION_TOLERANCE) ||
+                        pointsAreClose(currentEndpoints.end, elEndpoints.start, CONNECTION_TOLERANCE) ||
+                        pointsAreClose(currentEndpoints.end, elEndpoints.end, CONNECTION_TOLERANCE);
+
+                    if (isConnected) {
+                        connected.add(el);
+                        toProcess.push(el);
+                    }
+                });
+            }
+
+            return connected;
+        }
+
         function setupSvgInteraction() {
             const svgElement = previewArea.querySelector('svg');
             if (!svgElement) return;
@@ -993,6 +1073,45 @@ ${svgContent}  </g>
                 }
                 updateSelectionInfo();
             }
+
+            // Handle double-click to select connected chain
+            function selectConnectedChain(el, shiftKey) {
+                const allSelectables = Array.from(svgElement.querySelectorAll('.selectable'));
+                const connected = findConnectedElements(el, allSelectables);
+
+                if (!shiftKey) {
+                    // Clear previous selection
+                    selectedElements.forEach(selected => {
+                        selected.classList.remove('selected');
+                    });
+                    selectedElements.clear();
+                }
+
+                // Select all connected elements
+                connected.forEach(connectedEl => {
+                    connectedEl.classList.add('selected');
+                    selectedElements.add(connectedEl);
+                });
+
+                updateSelectionInfo();
+            }
+
+            // Double-click handler for chain selection
+            previewArea.addEventListener('dblclick', function(e) {
+                let targetElement = null;
+
+                if (e.target.classList.contains('selectable')) {
+                    targetElement = e.target;
+                } else if (e.target.classList.contains('hit-area')) {
+                    targetElement = elementMap.get(e.target);
+                }
+
+                if (targetElement) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    selectConnectedChain(targetElement, e.shiftKey);
+                }
+            });
 
             // Drag selection on preview area
             previewArea.addEventListener('mousedown', function(e) {
