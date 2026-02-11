@@ -498,6 +498,13 @@
             <button class="btn btn-primary" id="downloadBtn" disabled>Download SVG</button>
             <button class="btn btn-primary" id="downloadDxfBtn" disabled>Download DXF</button>
             <button class="btn btn-primary" id="removeDuplicatesBtn" disabled>Remove Duplicates</button>
+            <select id="dupToleranceSelect" title="Duplicate detection tolerance">
+                <option value="0.01">±0.01 (tight)</option>
+                <option value="0.1" selected>±0.1 (default)</option>
+                <option value="0.5">±0.5</option>
+                <option value="1">±1.0</option>
+                <option value="5">±5.0 (loose)</option>
+            </select>
         </div>
 
         <div class="status" id="status"></div>
@@ -1214,7 +1221,7 @@ ${groupsContent}  </g>
         let dragGroupEndpoints = [];
         const SNAP_TOLERANCE = 5.0;
         const CONNECTION_TOLERANCE = 0.5;
-        const DUPLICATE_TOLERANCE = 0.1;
+        let duplicateTolerance = 0.1;
 
         // Element interaction map
         let elementMap = new Map();
@@ -1226,6 +1233,7 @@ ${groupsContent}  </g>
         const downloadBtn = document.getElementById('downloadBtn');
         const downloadDxfBtn = document.getElementById('downloadDxfBtn');
         const removeDuplicatesBtn = document.getElementById('removeDuplicatesBtn');
+        const dupToleranceSelect = document.getElementById('dupToleranceSelect');
         const status = document.getElementById('status');
         const previewContainer = document.getElementById('previewContainer');
         const previewArea = document.getElementById('previewArea');
@@ -1357,7 +1365,7 @@ ${groupsContent}  </g>
 
         // --- Core Functions ---
 
-        function rebuildCanvas(resetView = true) {
+        function rebuildCanvas(resetView = true, suppressStatus = false) {
             selectedElements.clear();
             updateSelectionInfo();
             elementMap.clear();
@@ -1418,8 +1426,10 @@ ${groupsContent}  </g>
                 previewArea.classList.add('move-mode');
             }
 
-            const totalEntities = importedGroups.reduce((sum, g) => sum + g.entities.length, 0);
-            showStatus(`${importedGroups.length} file(s) loaded, ${totalEntities} total entities.`, 'success');
+            if (!suppressStatus) {
+                const totalEntities = importedGroups.reduce((sum, g) => sum + g.entities.length, 0);
+                showStatus(`${importedGroups.length} file(s) loaded, ${totalEntities} total entities.`, 'success');
+            }
         }
 
         function updateViewBox() {
@@ -1807,8 +1817,8 @@ ${groupsContent}  </g>
             // Remove empty groups
             importedGroups = importedGroups.filter(g => g.entities.length > 0);
 
+            rebuildCanvas(false, true);
             showStatus(`Deleted ${deletedCount} element(s).`, 'success');
-            rebuildCanvas(false);
         }
 
         function removeDuplicates() {
@@ -1843,7 +1853,7 @@ ${groupsContent}  </g>
             }
 
             if (toRemove.size === 0) {
-                showStatus(`No duplicates found (checked ${totalBefore} entities across ${importedGroups.length} file(s)).`, 'info');
+                showStatus(`No duplicates found at ±${duplicateTolerance} tolerance (checked ${totalBefore} entities across ${importedGroups.length} file(s)).`, 'info');
                 return;
             }
 
@@ -1900,8 +1910,8 @@ ${groupsContent}  </g>
             const fileBreakdown = Object.entries(removedByGroup)
                 .map(([fname, count]) => `${count} from ${fname}`)
                 .join(', ');
+            rebuildCanvas(false, true);
             showStatus(`Removed ${removedCount} duplicate(s): ${typeBreakdown} (${fileBreakdown}). ${totalBefore} → ${totalAfter} entities.`, 'success');
-            rebuildCanvas(false);
         }
 
         function entitiesAreDuplicates(a, b) {
@@ -1909,7 +1919,7 @@ ${groupsContent}  </g>
             const ox1 = a.ox, oy1 = a.oy, ox2 = b.ox, oy2 = b.oy;
 
             if (e1.type !== e2.type) return false;
-            const TOL = DUPLICATE_TOLERANCE;
+            const TOL = duplicateTolerance;
 
             function ptEq(x1, y1, x2, y2) {
                 return Math.abs(x1 - x2) < TOL && Math.abs(y1 - y2) < TOL;
@@ -2357,6 +2367,9 @@ ${groupsContent}  </g>
         downloadBtn.addEventListener('click', downloadSvg);
         downloadDxfBtn.addEventListener('click', downloadDxf);
         removeDuplicatesBtn.addEventListener('click', removeDuplicates);
+        dupToleranceSelect.addEventListener('change', function() {
+            duplicateTolerance = parseFloat(dupToleranceSelect.value);
+        });
 
         unitSelect.addEventListener('change', function() {
             if (importedGroups.length > 0) {

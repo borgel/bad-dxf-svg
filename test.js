@@ -39,7 +39,7 @@ const dupMatch = script.match(/function entitiesAreDuplicates\(a, b\)\s*\{[\s\S]
 if (dupMatch) utilFuncs.push(dupMatch[0]);
 
 const moduleCode = classCode + '\n'
-    + 'const DUPLICATE_TOLERANCE = 0.1;\n'
+    + 'let duplicateTolerance = 0.1;\n'
     + utilFuncs.join('\n') + '\n'
     + 'module.exports = { DxfParser, SvgGenerator, DxfWriter, getEntityEndpoints, entitiesAreDuplicates };\n';
 
