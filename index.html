@@ -342,6 +342,26 @@
             margin-top: 16px;
         }
 
+        /* Bed controls */
+        .bed-dim-input {
+            width: 70px;
+            padding: 6px 8px;
+            border: 1px solid #d0d0d0;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        .bed-dim-sep {
+            font-size: 13px;
+            color: #555;
+        }
+        .tray-rect {
+            stroke: #999;
+            stroke-dasharray: 8 4;
+            fill: none;
+            pointer-events: none;
+            vector-effect: non-scaling-stroke;
+        }
+
         /* File list */
         .file-list {
             background: #f8f8f8;
@@ -414,6 +434,7 @@
         /* Mode toolbar */
         .mode-toolbar {
             display: flex;
+            flex-wrap: wrap;
             gap: 8px;
             align-items: center;
             margin-bottom: 12px;
@@ -549,6 +570,16 @@
                         <option value="1">±1.0</option>
                         <option value="5">±5.0 (loose)</option>
                     </select>
+                </span>
+                <span class="toolbar-group">
+                    <button class="btn btn-mode" id="bedToggleBtn">Bed: OFF</button>
+                    <select id="bedPresetSelect" class="bed-control" style="display:none;">
+                        <option value="glowforge">Glowforge (19.5″×11″)</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                    <input type="number" id="bedWidthInput" class="bed-control bed-dim-input" style="display:none;" step="any">
+                    <span class="bed-control bed-dim-sep" id="bedDimSep" style="display:none;">×</span>
+                    <input type="number" id="bedHeightInput" class="bed-control bed-dim-input" style="display:none;" step="any">
                 </span>
             </div>
 
@@ -1281,6 +1312,11 @@ ${groupsContent}  </g>
         let baseViewBox = null;
         let baseBounds = null;
 
+        // Bed/tray
+        let bedEnabled = false;
+        let bedWidth = 495.3;   // mm default (Glowforge, landscape)
+        let bedHeight = 279.4;
+
         // Move mode
         let moveMode = false;
         let selectedGroupId = null;
@@ -1331,6 +1367,10 @@ ${groupsContent}  </g>
         const clearAllBtn = document.getElementById('clearAllBtn');
         const moveModeBtn = document.getElementById('moveModeBtn');
         const resetViewBtn = document.getElementById('resetViewBtn');
+        const bedToggleBtn = document.getElementById('bedToggleBtn');
+        const bedPresetSelect = document.getElementById('bedPresetSelect');
+        const bedWidthInput = document.getElementById('bedWidthInput');
+        const bedHeightInput = document.getElementById('bedHeightInput');
 
         // --- Utility Functions ---
 
@@ -1466,6 +1506,14 @@ ${groupsContent}  </g>
 
             const generator = new SvgGenerator();
             const bounds = generator.calculateCompositeBounds(importedGroups);
+
+            if (bedEnabled) {
+                bounds.minX = Math.min(bounds.minX, 0);
+                bounds.minY = Math.min(bounds.minY, 0);
+                bounds.maxX = Math.max(bounds.maxX, bedWidth);
+                bounds.maxY = Math.max(bounds.maxY, bedHeight);
+            }
+
             baseBounds = bounds;
 
             const width = bounds.maxX - bounds.minX;
@@ -1481,6 +1529,25 @@ ${groupsContent}  </g>
             const scale = getScale();
             const svgString = generator.generateCompositeSvg(importedGroups, colorOverrides, scale, false);
             previewArea.innerHTML = svgString;
+
+            if (bedEnabled) {
+                const svg = previewArea.querySelector('svg');
+                const outerG = svg.querySelector('g');
+                const ns = 'http://www.w3.org/2000/svg';
+                const rect = document.createElementNS(ns, 'rect');
+                rect.setAttribute('x', 0);
+                rect.setAttribute('y', 0);
+                rect.setAttribute('width', bedWidth);
+                rect.setAttribute('height', bedHeight);
+                rect.setAttribute('class', 'tray-rect');
+                rect.setAttribute('stroke', '#999');
+                rect.setAttribute('stroke-dasharray', '8 4');
+                rect.setAttribute('stroke-width', '0.5');
+                rect.setAttribute('fill', 'none');
+                rect.setAttribute('pointer-events', 'none');
+                rect.setAttribute('vector-effect', 'non-scaling-stroke');
+                outerG.insertBefore(rect, outerG.firstChild);
+            }
 
             setupSvgInteraction();
 
@@ -1700,6 +1767,16 @@ ${groupsContent}  </g>
                         }
                     }
                 }
+            }
+
+            if (bedEnabled) {
+                const bedPoints = [
+                    {x: 0, y: 0}, {x: bedWidth, y: 0},
+                    {x: 0, y: bedHeight}, {x: bedWidth, y: bedHeight},
+                    {x: bedWidth / 2, y: 0}, {x: bedWidth / 2, y: bedHeight},
+                    {x: 0, y: bedHeight / 2}, {x: bedWidth, y: bedHeight / 2}
+                ];
+                otherGroupEndpoints.push(...bedPoints);
             }
         }
 
@@ -2475,6 +2552,57 @@ ${groupsContent}  </g>
         });
 
         unitSelect.addEventListener('change', function() {
+            if (importedGroups.length > 0) {
+                rebuildCanvas(false);
+            }
+        });
+
+        // Bed controls
+        bedToggleBtn.addEventListener('click', function() {
+            bedEnabled = !bedEnabled;
+            bedToggleBtn.textContent = bedEnabled ? 'Bed: ON' : 'Bed: OFF';
+            bedToggleBtn.classList.toggle('active', bedEnabled);
+            document.querySelectorAll('.bed-control').forEach(el => {
+                el.style.display = bedEnabled ? '' : 'none';
+            });
+            if (bedEnabled) {
+                bedWidthInput.value = bedWidth;
+                bedHeightInput.value = bedHeight;
+            }
+            if (importedGroups.length > 0) {
+                rebuildCanvas(true);
+            }
+        });
+
+        bedPresetSelect.addEventListener('change', function() {
+            if (bedPresetSelect.value === 'glowforge') {
+                const unit = unitSelect.value;
+                if (unit === 'in') {
+                    bedWidth = 19.5;
+                    bedHeight = 11;
+                } else {
+                    bedWidth = 495.3;
+                    bedHeight = 279.4;
+                }
+                bedWidthInput.value = bedWidth;
+                bedHeightInput.value = bedHeight;
+            }
+            if (importedGroups.length > 0) {
+                rebuildCanvas(true);
+            }
+        });
+
+        bedWidthInput.addEventListener('change', function() {
+            bedWidth = parseFloat(bedWidthInput.value) || 0;
+            bedPresetSelect.value = 'custom';
+            if (importedGroups.length > 0) {
+                rebuildCanvas(false);
+            }
+        });
+
+        bedHeightInput.addEventListener('change', function() {
+            bedHeight = parseFloat(bedHeightInput.value) || 0;
+            bedPresetSelect.value = 'custom';
             if (importedGroups.length > 0) {
                 rebuildCanvas(false);
             }
