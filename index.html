@@ -670,10 +670,7 @@
                 </span>
                 <span class="toolbar-group">
                     <button class="btn btn-mode" id="removeDuplicatesBtn">Find Overlaps</button>
-                    <select id="dupActionSelect" title="Action for duplicates">
-                        <option value="remove">Remove</option>
-                        <option value="highlight">Highlight</option>
-                    </select>
+                    <button class="btn btn-mode" id="removeOverlapsBtn" style="display:none">Remove Overlaps</button>
                     <select id="dupToleranceSelect" title="Duplicate detection tolerance">
                         <option value="0.01">±0.01 (tight)</option>
                         <option value="0.1" selected>±0.1 (default)</option>
@@ -1462,6 +1459,8 @@ ${groupsContent}  </g>
         const SNAP_TOLERANCE = 5.0;
         const CONNECTION_TOLERANCE = 0.5;
         let duplicateTolerance = 0.1;
+        let pendingOverlapRemovals = null;
+        const removeOverlapsBtn = document.getElementById('removeOverlapsBtn');
 
         // Element interaction map
         let elementMap = new Map();
@@ -2031,6 +2030,10 @@ ${groupsContent}  </g>
             updateSelectionInfo();
             elementMap.clear();
 
+            // Invalidate pending overlap removals (stale after undo/redo/import)
+            pendingOverlapRemovals = null;
+            removeOverlapsBtn.style.display = 'none';
+
             if (importedGroups.length === 0) {
                 previewContainer.classList.remove('visible');
                 downloadBtn.disabled = true;
@@ -2534,7 +2537,7 @@ ${groupsContent}  </g>
             showStatus(`Deleted ${deletedCount} element(s).`, 'success');
         }
 
-        function removeDuplicates() {
+        function findOverlaps() {
             if (importedGroups.length === 0) return;
 
             const totalBefore = importedGroups.reduce((sum, g) => sum + g.entities.length, 0);
@@ -2567,10 +2570,50 @@ ${groupsContent}  </g>
 
             if (toRemove.size === 0) {
                 showStatus(`No duplicates found at ±${duplicateTolerance} tolerance (checked ${totalBefore} entities across ${importedGroups.length} file(s)).`, 'info');
+                removeOverlapsBtn.style.display = 'none';
+                pendingOverlapRemovals = null;
                 return;
             }
 
-            const action = document.getElementById('dupActionSelect').value;
+            // Count duplicates by type for feedback
+            const dupByType = {};
+            for (const idx of toRemove) {
+                const t = allEntities[idx].entity.type;
+                dupByType[t] = (dupByType[t] || 0) + 1;
+            }
+            const typeBreakdown = Object.entries(dupByType)
+                .map(([type, count]) => `${count} ${type}`)
+                .join(', ');
+
+            // Select the duplicate elements on the canvas
+            clearSelection();
+            const svg = previewArea.querySelector('svg');
+            if (svg) {
+                for (const idx of toRemove) {
+                    const entry = allEntities[idx];
+                    const groupG = svg.querySelector(`g[data-group-id="${entry.groupId}"]`);
+                    if (!groupG) continue;
+                    const el = groupG.querySelector(`[data-element-id="${entry.entityIndex}"]`);
+                    if (el) {
+                        el.classList.add('selected');
+                        selectedElements.add(el);
+                    }
+                }
+            }
+            updateSelectionInfo();
+
+            // Store pending removals for step 2
+            pendingOverlapRemovals = { allEntities, toRemove, totalBefore };
+
+            // Show the Remove button and status
+            removeOverlapsBtn.textContent = `Remove ${toRemove.size} Overlaps`;
+            removeOverlapsBtn.style.display = '';
+            showStatus(`Found ${toRemove.size} overlap(s): ${typeBreakdown}. Inspect, then click Remove.`, 'info');
+        }
+
+        function removeOverlaps() {
+            if (!pendingOverlapRemovals) return;
+            const { allEntities, toRemove, totalBefore } = pendingOverlapRemovals;
 
             saveUndoState();
 
@@ -2593,53 +2636,46 @@ ${groupsContent}  </g>
                 .map(([fname, count]) => `${count} from ${fname}`)
                 .join(', ');
 
-            if (action === 'highlight') {
-                // Set color of duplicate entities to highlight color
-                const highlightColor = '#FF0000';
-                for (const idx of toRemove) {
-                    const entry = allEntities[idx];
-                    colorOverrides.set(`${entry.groupId}-${entry.entityIndex}`, highlightColor);
+            // Collect removals by group
+            const groupRemovals = new Map();
+            for (const idx of toRemove) {
+                const entry = allEntities[idx];
+                if (!groupRemovals.has(entry.groupId)) {
+                    groupRemovals.set(entry.groupId, new Set());
                 }
-                rebuildCanvas(false, true);
-                showStatus(`Highlighted ${toRemove.size} duplicate(s) in red: ${typeBreakdown} (${fileBreakdown}).`, 'success');
-            } else {
-                // Collect removals by group
-                const groupRemovals = new Map();
-                for (const idx of toRemove) {
-                    const entry = allEntities[idx];
-                    if (!groupRemovals.has(entry.groupId)) {
-                        groupRemovals.set(entry.groupId, new Set());
-                    }
-                    groupRemovals.get(entry.groupId).add(entry.entityIndex);
-                }
-
-                // Remove entities
-                let removedCount = 0;
-                for (const [groupId, indices] of groupRemovals) {
-                    const group = findGroupById(groupId);
-                    if (!group) continue;
-
-                    const sortedIndices = Array.from(indices).sort((a, b) => b - a);
-                    for (const idx of sortedIndices) {
-                        group.entities.splice(idx, 1);
-                        removedCount++;
-                    }
-
-                    // Clear color overrides for this group (indices shifted)
-                    for (const [key] of colorOverrides) {
-                        if (key.startsWith(`${groupId}-`)) {
-                            colorOverrides.delete(key);
-                        }
-                    }
-                }
-
-                // Remove empty groups
-                importedGroups = importedGroups.filter(g => g.entities.length > 0);
-                const totalAfter = importedGroups.reduce((sum, g) => sum + g.entities.length, 0);
-
-                rebuildCanvas(false, true);
-                showStatus(`Removed ${removedCount} duplicate(s): ${typeBreakdown} (${fileBreakdown}). ${totalBefore} → ${totalAfter} entities.`, 'success');
+                groupRemovals.get(entry.groupId).add(entry.entityIndex);
             }
+
+            // Remove entities
+            let removedCount = 0;
+            for (const [groupId, indices] of groupRemovals) {
+                const group = findGroupById(groupId);
+                if (!group) continue;
+
+                const sortedIndices = Array.from(indices).sort((a, b) => b - a);
+                for (const idx of sortedIndices) {
+                    group.entities.splice(idx, 1);
+                    removedCount++;
+                }
+
+                // Clear color overrides for this group (indices shifted)
+                for (const [key] of colorOverrides) {
+                    if (key.startsWith(`${groupId}-`)) {
+                        colorOverrides.delete(key);
+                    }
+                }
+            }
+
+            // Remove empty groups
+            importedGroups = importedGroups.filter(g => g.entities.length > 0);
+            const totalAfter = importedGroups.reduce((sum, g) => sum + g.entities.length, 0);
+
+            // Clean up pending state
+            removeOverlapsBtn.style.display = 'none';
+            pendingOverlapRemovals = null;
+
+            rebuildCanvas(false, true);
+            showStatus(`Removed ${removedCount} duplicate(s): ${typeBreakdown} (${fileBreakdown}). ${totalBefore} → ${totalAfter} entities.`, 'success');
         }
 
         function entitiesAreDuplicates(a, b) {
@@ -3082,7 +3118,8 @@ ${groupsContent}  </g>
         // Controls
         downloadBtn.addEventListener('click', downloadSvg);
         downloadDxfBtn.addEventListener('click', downloadDxf);
-        removeDuplicatesBtn.addEventListener('click', removeDuplicates);
+        removeDuplicatesBtn.addEventListener('click', findOverlaps);
+        removeOverlapsBtn.addEventListener('click', removeOverlaps);
         dupToleranceSelect.addEventListener('change', function() {
             duplicateTolerance = parseFloat(dupToleranceSelect.value);
         });
