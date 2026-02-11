@@ -1814,7 +1814,7 @@ ${groupsContent}  </g>
         function removeDuplicates() {
             if (importedGroups.length === 0) return;
 
-            let removedCount = 0;
+            const totalBefore = importedGroups.reduce((sum, g) => sum + g.entities.length, 0);
 
             // Build a flat list of all entities with absolute coordinates info
             const allEntities = [];
@@ -1843,8 +1843,20 @@ ${groupsContent}  </g>
             }
 
             if (toRemove.size === 0) {
-                showStatus('No duplicates found.', 'info');
+                showStatus(`No duplicates found (checked ${totalBefore} entities across ${importedGroups.length} file(s)).`, 'info');
                 return;
+            }
+
+            // Count duplicates by type and by file for feedback
+            const removedByType = {};
+            const removedByGroup = {};
+            for (const idx of toRemove) {
+                const entry = allEntities[idx];
+                const t = entry.entity.type;
+                removedByType[t] = (removedByType[t] || 0) + 1;
+                const group = findGroupById(entry.groupId);
+                const fname = group ? group.filename + '.dxf' : 'unknown';
+                removedByGroup[fname] = (removedByGroup[fname] || 0) + 1;
             }
 
             // Collect removals by group
@@ -1858,6 +1870,7 @@ ${groupsContent}  </g>
             }
 
             // Remove entities
+            let removedCount = 0;
             for (const [groupId, indices] of groupRemovals) {
                 const group = findGroupById(groupId);
                 if (!group) continue;
@@ -1878,8 +1891,16 @@ ${groupsContent}  </g>
 
             // Remove empty groups
             importedGroups = importedGroups.filter(g => g.entities.length > 0);
+            const totalAfter = importedGroups.reduce((sum, g) => sum + g.entities.length, 0);
 
-            showStatus(`Removed ${removedCount} duplicate entities.`, 'success');
+            // Build detailed status message
+            const typeBreakdown = Object.entries(removedByType)
+                .map(([type, count]) => `${count} ${type}`)
+                .join(', ');
+            const fileBreakdown = Object.entries(removedByGroup)
+                .map(([fname, count]) => `${count} from ${fname}`)
+                .join(', ');
+            showStatus(`Removed ${removedCount} duplicate(s): ${typeBreakdown} (${fileBreakdown}). ${totalBefore} → ${totalAfter} entities.`, 'success');
             rebuildCanvas(false);
         }
 
