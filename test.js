@@ -1,406 +1,55 @@
 /**
  * Test script for DXF to SVG converter
  * Run with: node test.js
+ *
+ * Classes are extracted from index.html so tests always match the live code.
  */
 
 const fs = require('fs');
 const path = require('path');
 
-// Extract the DxfParser and SvgGenerator classes (duplicated from index.html for testing)
-class DxfParser {
-    parse(dxfString) {
-        const lines = dxfString.split(/\r?\n/);
-        const entities = [];
-        let i = 0;
+// ============================================
+// Extract classes from index.html (no duplication)
+// ============================================
 
-        // Find ENTITIES section
-        while (i < lines.length) {
-            if (lines[i].trim() === 'ENTITIES') {
-                i++;
-                break;
-            }
-            i++;
-        }
-
-        // Parse entities
-        while (i < lines.length) {
-            const code = parseInt(lines[i].trim(), 10);
-            const value = lines[i + 1] ? lines[i + 1].trim() : '';
-
-            if (code === 0) {
-                if (value === 'ENDSEC' || value === 'EOF') break;
-
-                const entityType = value;
-                i += 2;
-                const result = this.parseEntity(entityType, lines, i);
-                if (result) {
-                    i = result.nextIndex;
-                    if (result.entity) {
-                        entities.push(result.entity);
-                    }
-                }
-            } else {
-                i += 2;
-            }
-        }
-
-        return { entities };
-    }
-
-    parseEntity(type, lines, startIndex) {
-        const entity = { type };
-        let i = startIndex;
-
-        const groupValues = {};
-
-        while (i < lines.length) {
-            const code = parseInt(lines[i].trim(), 10);
-            const value = lines[i + 1] ? lines[i + 1].trim() : '';
-
-            if (code === 0) {
-                // Next entity or end of section
-                break;
-            }
-
-            // Store group codes
-            if (!groupValues[code]) {
-                groupValues[code] = [];
-            }
-            groupValues[code].push(value);
-
-            i += 2;
-        }
-
-        // Parse based on entity type
-        switch (type) {
-            case 'LINE':
-                entity.start = {
-                    x: parseFloat(groupValues[10]?.[0] || 0),
-                    y: parseFloat(groupValues[20]?.[0] || 0)
-                };
-                entity.end = {
-                    x: parseFloat(groupValues[11]?.[0] || 0),
-                    y: parseFloat(groupValues[21]?.[0] || 0)
-                };
-                break;
-
-            case 'CIRCLE':
-                entity.center = {
-                    x: parseFloat(groupValues[10]?.[0] || 0),
-                    y: parseFloat(groupValues[20]?.[0] || 0)
-                };
-                entity.radius = parseFloat(groupValues[40]?.[0] || 0);
-                break;
-
-            case 'ARC':
-                entity.center = {
-                    x: parseFloat(groupValues[10]?.[0] || 0),
-                    y: parseFloat(groupValues[20]?.[0] || 0)
-                };
-                entity.radius = parseFloat(groupValues[40]?.[0] || 0);
-                entity.startAngle = parseFloat(groupValues[50]?.[0] || 0);
-                entity.endAngle = parseFloat(groupValues[51]?.[0] || 0);
-                break;
-
-            case 'ELLIPSE':
-                entity.center = {
-                    x: parseFloat(groupValues[10]?.[0] || 0),
-                    y: parseFloat(groupValues[20]?.[0] || 0)
-                };
-                entity.majorAxis = {
-                    x: parseFloat(groupValues[11]?.[0] || 1),
-                    y: parseFloat(groupValues[21]?.[0] || 0)
-                };
-                entity.ratio = parseFloat(groupValues[40]?.[0] || 1);
-                entity.startAngle = parseFloat(groupValues[41]?.[0] || 0);
-                entity.endAngle = parseFloat(groupValues[42]?.[0] || Math.PI * 2);
-                break;
-
-            case 'LWPOLYLINE':
-            case 'POLYLINE':
-                entity.vertices = [];
-                entity.closed = (parseInt(groupValues[70]?.[0] || 0) & 1) === 1;
-
-                if (type === 'LWPOLYLINE') {
-                    const xVals = groupValues[10] || [];
-                    const yVals = groupValues[20] || [];
-                    const bulges = groupValues[42] || [];
-
-                    for (let j = 0; j < xVals.length; j++) {
-                        entity.vertices.push({
-                            x: parseFloat(xVals[j]),
-                            y: parseFloat(yVals[j]),
-                            bulge: parseFloat(bulges[j] || 0)
-                        });
-                    }
-                }
-                break;
-
-            case 'SPLINE':
-                entity.controlPoints = [];
-                entity.degree = parseInt(groupValues[71]?.[0] || 3);
-
-                const splineX = groupValues[10] || [];
-                const splineY = groupValues[20] || [];
-
-                for (let j = 0; j < splineX.length; j++) {
-                    entity.controlPoints.push({
-                        x: parseFloat(splineX[j]),
-                        y: parseFloat(splineY[j])
-                    });
-                }
-                break;
-
-            default:
-                return { entity: null, nextIndex: i };
-        }
-
-        return { entity, nextIndex: i };
-    }
+const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+const scriptMatch = html.match(/<script>([\s\S]*?)<\/script>/);
+if (!scriptMatch) {
+    console.error('ERROR: Could not find <script> tag in index.html');
+    process.exit(1);
 }
 
-class SvgGenerator {
-    constructor(entities) {
-        this.entities = entities;
-        this.bounds = this.calculateBounds();
-    }
-
-    calculateBounds() {
-        let minX = Infinity, minY = Infinity;
-        let maxX = -Infinity, maxY = -Infinity;
-
-        const updateBounds = (x, y) => {
-            if (isFinite(x) && isFinite(y)) {
-                minX = Math.min(minX, x);
-                minY = Math.min(minY, y);
-                maxX = Math.max(maxX, x);
-                maxY = Math.max(maxY, y);
-            }
-        };
-
-        for (const entity of this.entities) {
-            switch (entity.type) {
-                case 'LINE':
-                    updateBounds(entity.start.x, entity.start.y);
-                    updateBounds(entity.end.x, entity.end.y);
-                    break;
-                case 'CIRCLE':
-                    updateBounds(entity.center.x - entity.radius, entity.center.y - entity.radius);
-                    updateBounds(entity.center.x + entity.radius, entity.center.y + entity.radius);
-                    break;
-                case 'ARC':
-                    updateBounds(entity.center.x - entity.radius, entity.center.y - entity.radius);
-                    updateBounds(entity.center.x + entity.radius, entity.center.y + entity.radius);
-                    break;
-                case 'ELLIPSE':
-                    const majorLen = Math.sqrt(entity.majorAxis.x ** 2 + entity.majorAxis.y ** 2);
-                    const minorLen = majorLen * entity.ratio;
-                    updateBounds(entity.center.x - majorLen, entity.center.y - minorLen);
-                    updateBounds(entity.center.x + majorLen, entity.center.y + minorLen);
-                    break;
-                case 'LWPOLYLINE':
-                case 'POLYLINE':
-                    for (const v of entity.vertices) {
-                        updateBounds(v.x, v.y);
-                    }
-                    break;
-                case 'SPLINE':
-                    for (const p of entity.controlPoints) {
-                        updateBounds(p.x, p.y);
-                    }
-                    break;
-            }
-        }
-
-        if (!isFinite(minX)) { minX = 0; minY = 0; maxX = 100; maxY = 100; }
-
-        return { minX, minY, maxX, maxY };
-    }
-
-    generateSvg(scale = 1) {
-        const { minX, minY, maxX, maxY } = this.bounds;
-        const width = (maxX - minX) * scale;
-        const height = (maxY - minY) * scale;
-        const padding = Math.max(width, height) * 0.02;
-
-        let svgContent = '';
-
-        for (const entity of this.entities) {
-            svgContent += this.entityToSvg(entity);
-        }
-
-        return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg"
-     viewBox="${minX - padding} ${-(maxY + padding)} ${(maxX - minX) + padding * 2} ${(maxY - minY) + padding * 2}"
-     width="${width}mm"
-     height="${height}mm">
-  <g transform="scale(1, -1)" stroke="#000000" stroke-width="0.5" fill="none">
-${svgContent}  </g>
-</svg>`;
-    }
-
-    entityToSvg(entity) {
-        switch (entity.type) {
-            case 'LINE':
-                return `    <line x1="${entity.start.x}" y1="${entity.start.y}" x2="${entity.end.x}" y2="${entity.end.y}"/>\n`;
-
-            case 'CIRCLE':
-                return `    <circle cx="${entity.center.x}" cy="${entity.center.y}" r="${entity.radius}"/>\n`;
-
-            case 'ARC':
-                return this.arcToPath(entity);
-
-            case 'ELLIPSE':
-                return this.ellipseToPath(entity);
-
-            case 'LWPOLYLINE':
-            case 'POLYLINE':
-                return this.polylineToPath(entity);
-
-            case 'SPLINE':
-                return this.splineToPath(entity);
-
-            default:
-                return '';
-        }
-    }
-
-    arcToPath(entity) {
-        const { center, radius, startAngle, endAngle } = entity;
-        const startRad = startAngle * Math.PI / 180;
-        const endRad = endAngle * Math.PI / 180;
-
-        const x1 = center.x + radius * Math.cos(startRad);
-        const y1 = center.y + radius * Math.sin(startRad);
-        const x2 = center.x + radius * Math.cos(endRad);
-        const y2 = center.y + radius * Math.sin(endRad);
-
-        let sweepAngle = endAngle - startAngle;
-        if (sweepAngle < 0) sweepAngle += 360;
-        const largeArc = sweepAngle > 180 ? 1 : 0;
-
-        return `    <path d="M ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2}"/>\n`;
-    }
-
-    ellipseToPath(entity) {
-        const { center, majorAxis, ratio, startAngle, endAngle } = entity;
-        const rx = Math.sqrt(majorAxis.x ** 2 + majorAxis.y ** 2);
-        const ry = rx * ratio;
-        const rotation = Math.atan2(majorAxis.y, majorAxis.x) * 180 / Math.PI;
-
-        if (Math.abs(endAngle - startAngle - Math.PI * 2) < 0.01 || (startAngle === 0 && endAngle === 0)) {
-            return `    <ellipse cx="${center.x}" cy="${center.y}" rx="${rx}" ry="${ry}" transform="rotate(${rotation} ${center.x} ${center.y})"/>\n`;
-        }
-
-        const x1 = center.x + rx * Math.cos(startAngle);
-        const y1 = center.y + ry * Math.sin(startAngle);
-        const x2 = center.x + rx * Math.cos(endAngle);
-        const y2 = center.y + ry * Math.sin(endAngle);
-
-        let sweepAngle = endAngle - startAngle;
-        if (sweepAngle < 0) sweepAngle += Math.PI * 2;
-        const largeArc = sweepAngle > Math.PI ? 1 : 0;
-
-        return `    <path d="M ${x1} ${y1} A ${rx} ${ry} ${rotation} ${largeArc} 1 ${x2} ${y2}"/>\n`;
-    }
-
-    polylineToPath(entity) {
-        if (entity.vertices.length < 2) return '';
-
-        let d = `M ${entity.vertices[0].x} ${entity.vertices[0].y}`;
-
-        for (let i = 0; i < entity.vertices.length - 1; i++) {
-            const v1 = entity.vertices[i];
-            const v2 = entity.vertices[i + 1];
-
-            if (v1.bulge && v1.bulge !== 0) {
-                const arc = this.bulgeToArc(v1, v2, v1.bulge);
-                d += ` A ${arc.radius} ${arc.radius} 0 ${arc.largeArc} ${arc.sweep} ${v2.x} ${v2.y}`;
-            } else {
-                d += ` L ${v2.x} ${v2.y}`;
-            }
-        }
-
-        if (entity.closed && entity.vertices.length > 2) {
-            const vLast = entity.vertices[entity.vertices.length - 1];
-            const vFirst = entity.vertices[0];
-
-            if (vLast.bulge && vLast.bulge !== 0) {
-                const arc = this.bulgeToArc(vLast, vFirst, vLast.bulge);
-                d += ` A ${arc.radius} ${arc.radius} 0 ${arc.largeArc} ${arc.sweep} ${vFirst.x} ${vFirst.y}`;
-            } else {
-                d += ' Z';
-            }
-        }
-
-        return `    <path d="${d}"/>\n`;
-    }
-
-    bulgeToArc(v1, v2, bulge) {
-        const dx = v2.x - v1.x;
-        const dy = v2.y - v1.y;
-        const chord = Math.sqrt(dx * dx + dy * dy);
-        const sagitta = Math.abs(bulge) * chord / 2;
-        const radius = (chord * chord / 4 + sagitta * sagitta) / (2 * sagitta);
-
-        return {
-            radius,
-            largeArc: Math.abs(bulge) > 1 ? 1 : 0,
-            sweep: bulge > 0 ? 1 : 0
-        };
-    }
-
-    splineToPath(entity) {
-        if (entity.controlPoints.length < 2) return '';
-
-        const points = this.interpolateSpline(entity.controlPoints, entity.degree);
-
-        let d = `M ${points[0].x} ${points[0].y}`;
-        for (let i = 1; i < points.length; i++) {
-            d += ` L ${points[i].x} ${points[i].y}`;
-        }
-
-        return `    <path d="${d}"/>\n`;
-    }
-
-    interpolateSpline(controlPoints, degree) {
-        if (controlPoints.length < 2) return controlPoints;
-
-        const result = [];
-        const segments = 20;
-
-        for (let i = 0; i < controlPoints.length - 1; i++) {
-            const p0 = controlPoints[Math.max(0, i - 1)];
-            const p1 = controlPoints[i];
-            const p2 = controlPoints[i + 1];
-            const p3 = controlPoints[Math.min(controlPoints.length - 1, i + 2)];
-
-            for (let t = 0; t < segments; t++) {
-                const s = t / segments;
-                const s2 = s * s;
-                const s3 = s2 * s;
-
-                const x = 0.5 * ((2 * p1.x) +
-                    (-p0.x + p2.x) * s +
-                    (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * s2 +
-                    (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * s3);
-
-                const y = 0.5 * ((2 * p1.y) +
-                    (-p0.y + p2.y) * s +
-                    (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * s2 +
-                    (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * s3);
-
-                result.push({ x, y });
-            }
-        }
-
-        result.push(controlPoints[controlPoints.length - 1]);
-        return result;
-    }
+const script = scriptMatch[1];
+const mainAppMarker = 'let importedGroups';
+const classEndIdx = script.indexOf(mainAppMarker);
+if (classEndIdx === -1) {
+    console.error('ERROR: Could not find class boundary in script');
+    process.exit(1);
 }
+
+// Build a module that exports the classes and utility functions
+const classCode = script.substring(0, classEndIdx);
+
+// Extract utility functions we need
+const utilFuncs = [];
+const getEndpointsMatch = script.match(/function getEntityEndpoints\(entity\)\s*\{[\s\S]*?\n        \}/);
+if (getEndpointsMatch) utilFuncs.push(getEndpointsMatch[0]);
+
+const dupMatch = script.match(/function entitiesAreDuplicates\(a, b\)\s*\{[\s\S]*?\n        \}/);
+if (dupMatch) utilFuncs.push(dupMatch[0]);
+
+const moduleCode = classCode + '\n'
+    + 'const DUPLICATE_TOLERANCE = 0.1;\n'
+    + utilFuncs.join('\n') + '\n'
+    + 'module.exports = { DxfParser, SvgGenerator, DxfWriter, getEntityEndpoints, entitiesAreDuplicates };\n';
+
+const tmpFile = path.join(__dirname, '.test_classes_tmp.js');
+fs.writeFileSync(tmpFile, moduleCode);
+const { DxfParser, SvgGenerator, DxfWriter, getEntityEndpoints, entitiesAreDuplicates } = require(tmpFile);
+fs.unlinkSync(tmpFile);
 
 // ============================================
-// Test Suite
+// Test Harness
 // ============================================
 
 let passed = 0;
@@ -409,32 +58,84 @@ let failed = 0;
 function test(name, fn) {
     try {
         fn();
-        console.log(`✓ ${name}`);
+        console.log(`  PASS: ${name}`);
         passed++;
     } catch (err) {
-        console.log(`✗ ${name}`);
-        console.log(`  Error: ${err.message}`);
+        console.log(`  FAIL: ${name}`);
+        console.log(`    Error: ${err.message}`);
         failed++;
     }
 }
 
 function assert(condition, message) {
-    if (!condition) {
-        throw new Error(message || 'Assertion failed');
-    }
+    if (!condition) throw new Error(message || 'Assertion failed');
 }
 
 function assertEqual(actual, expected, message) {
     if (actual !== expected) {
-        throw new Error(`${message || 'Values not equal'}: expected ${expected}, got ${actual}`);
+        throw new Error(`${message || 'Not equal'}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
     }
 }
 
 function assertApprox(actual, expected, tolerance, message) {
     if (Math.abs(actual - expected) > tolerance) {
-        throw new Error(`${message || 'Values not approximately equal'}: expected ${expected} ± ${tolerance}, got ${actual}`);
+        throw new Error(`${message || 'Not approx equal'}: expected ${expected} +/- ${tolerance}, got ${actual}`);
     }
 }
+
+// Helper: make a group from entities
+function makeGroup(id, filename, entities, offsetX = 0, offsetY = 0) {
+    return { id, filename, entities, offsetX, offsetY };
+}
+
+// ============================================
+// Test Data
+// ============================================
+
+const simpleDxf = `0
+SECTION
+2
+ENTITIES
+0
+LINE
+8
+0
+10
+0.0
+20
+0.0
+11
+100.0
+21
+50.0
+0
+CIRCLE
+8
+0
+10
+50.0
+20
+25.0
+40
+10.0
+0
+ARC
+8
+0
+10
+30.0
+20
+30.0
+40
+5.0
+50
+0.0
+51
+90.0
+0
+ENDSEC
+0
+EOF`;
 
 // ============================================
 // Run Tests
@@ -442,189 +143,708 @@ function assertApprox(actual, expected, tolerance, message) {
 
 console.log('DXF to SVG Converter Tests\n');
 
-// Test 1: Parse testfile1.dxf
-test('Parse testfile1.dxf without errors', () => {
-    const dxfContent = fs.readFileSync(path.join(__dirname, 'testfile1.dxf'), 'utf8');
-    const parser = new DxfParser();
-    const parsed = parser.parse(dxfContent);
+// --- DxfParser: Inline DXF ---
 
-    assert(parsed !== null, 'Parsed result should not be null');
-    assert(parsed.entities !== null, 'Entities should not be null');
-    assert(Array.isArray(parsed.entities), 'Entities should be an array');
+console.log('--- DxfParser: inline data ---');
+
+test('Parse simple DXF with LINE, CIRCLE, ARC', () => {
+    const parser = new DxfParser();
+    const parsed = parser.parse(simpleDxf);
+    assertEqual(parsed.entities.length, 3, 'Entity count');
+    assertEqual(parsed.entities[0].type, 'LINE');
+    assertEqual(parsed.entities[1].type, 'CIRCLE');
+    assertEqual(parsed.entities[2].type, 'ARC');
 });
 
-// Test 2: Verify entity count
-test('testfile1.dxf contains expected number of entities', () => {
-    const dxfContent = fs.readFileSync(path.join(__dirname, 'testfile1.dxf'), 'utf8');
+test('LINE entity has correct coordinates', () => {
     const parser = new DxfParser();
-    const parsed = parser.parse(dxfContent);
-
-    // The file has: 6 LWPOLYLINE, 12 LINE, 1 SPLINE, 1 CIRCLE = 20 entities
-    // POINT entities (2) should be skipped
-    assert(parsed.entities.length > 0, 'Should have at least some entities');
-    console.log(`  Found ${parsed.entities.length} entities`);
+    const parsed = parser.parse(simpleDxf);
+    const line = parsed.entities[0];
+    assertApprox(line.start.x, 0, 0.001);
+    assertApprox(line.start.y, 0, 0.001);
+    assertApprox(line.end.x, 100, 0.001);
+    assertApprox(line.end.y, 50, 0.001);
 });
 
-// Test 3: No null entities
-test('No null entities in parsed result', () => {
-    const dxfContent = fs.readFileSync(path.join(__dirname, 'testfile1.dxf'), 'utf8');
+test('CIRCLE entity has correct center and radius', () => {
     const parser = new DxfParser();
-    const parsed = parser.parse(dxfContent);
+    const parsed = parser.parse(simpleDxf);
+    const circle = parsed.entities[1];
+    assertApprox(circle.center.x, 50, 0.001);
+    assertApprox(circle.center.y, 25, 0.001);
+    assertApprox(circle.radius, 10, 0.001);
+});
+
+test('ARC entity has correct angles', () => {
+    const parser = new DxfParser();
+    const parsed = parser.parse(simpleDxf);
+    const arc = parsed.entities[2];
+    assertApprox(arc.center.x, 30, 0.001);
+    assertApprox(arc.startAngle, 0, 0.001);
+    assertApprox(arc.endAngle, 90, 0.001);
+});
+
+// --- DxfParser: testfile1.dxf ---
+
+const testfile1Path = path.join(__dirname, 'testfile1.dxf');
+const hasTestfile1 = fs.existsSync(testfile1Path);
+
+if (hasTestfile1) {
+    console.log('\n--- DxfParser: testfile1.dxf ---');
+
+    test('Parse testfile1.dxf without errors', () => {
+        const dxfContent = fs.readFileSync(testfile1Path, 'utf8');
+        const parser = new DxfParser();
+        const parsed = parser.parse(dxfContent);
+        assert(parsed.entities.length > 0, 'Should have entities');
+        console.log(`    Found ${parsed.entities.length} entities`);
+    });
+
+    test('testfile1.dxf entity types are all valid', () => {
+        const dxfContent = fs.readFileSync(testfile1Path, 'utf8');
+        const parser = new DxfParser();
+        const parsed = parser.parse(dxfContent);
+        const validTypes = ['LINE', 'CIRCLE', 'ARC', 'ELLIPSE', 'LWPOLYLINE', 'POLYLINE', 'SPLINE'];
+        for (const e of parsed.entities) {
+            assert(validTypes.includes(e.type), `Invalid type: ${e.type}`);
+        }
+    });
+
+    test('testfile1.dxf LINE entities have start/end', () => {
+        const dxfContent = fs.readFileSync(testfile1Path, 'utf8');
+        const parser = new DxfParser();
+        const parsed = parser.parse(dxfContent);
+        const lines = parsed.entities.filter(e => e.type === 'LINE');
+        assert(lines.length > 0, 'Should have LINE entities');
+        for (const line of lines) {
+            assert(typeof line.start.x === 'number' && isFinite(line.start.x));
+            assert(typeof line.end.x === 'number' && isFinite(line.end.x));
+        }
+    });
+} else {
+    console.log('\n--- Skipping testfile1.dxf tests (file not found) ---');
+}
+
+// --- DxfParser: testfile2.dxf ---
+
+const testfile2Path = path.join(__dirname, 'testfile2.dxf');
+const hasTestfile2 = fs.existsSync(testfile2Path);
+
+if (hasTestfile2) {
+    console.log('\n--- DxfParser: testfile2.dxf ---');
+
+    let parsed2 = null;
+
+    test('Parse testfile2.dxf without errors', () => {
+        const dxfContent = fs.readFileSync(testfile2Path, 'utf8');
+        const parser = new DxfParser();
+        parsed2 = parser.parse(dxfContent);
+        assert(parsed2.entities.length > 0, 'Should have entities');
+        console.log(`    Found ${parsed2.entities.length} entities`);
+    });
+
+    test('testfile2.dxf has expected entity types', () => {
+        assert(parsed2 !== null);
+        const types = {};
+        for (const e of parsed2.entities) types[e.type] = (types[e.type] || 0) + 1;
+        console.log(`    Entity breakdown: ${JSON.stringify(types)}`);
+
+        assert(types['CIRCLE'] >= 1, 'Should have at least 1 CIRCLE');
+        assert(types['LWPOLYLINE'] >= 1, 'Should have at least 1 LWPOLYLINE');
+        assert(types['SPLINE'] >= 1, 'Should have at least 1 SPLINE');
+        assert(types['LINE'] >= 1, 'Should have at least 1 LINE');
+    });
+
+    test('testfile2.dxf CIRCLE is parsed correctly', () => {
+        const circles = parsed2.entities.filter(e => e.type === 'CIRCLE');
+        assert(circles.length === 1, 'Should have exactly 1 circle');
+        assertApprox(circles[0].center.x, 6.176, 0.01, 'Circle center X');
+        assertApprox(circles[0].center.y, 457.444, 0.01, 'Circle center Y');
+        assertApprox(circles[0].radius, 1.5, 0.01, 'Circle radius');
+    });
+
+    test('testfile2.dxf LWPOLYLINE closed flag parsed correctly', () => {
+        const polys = parsed2.entities.filter(e => e.type === 'LWPOLYLINE');
+        assert(polys.length >= 3, 'Should have at least 3 polylines');
+        for (const p of polys) {
+            assertEqual(p.closed, true, `Polyline should be closed (has ${p.vertices.length} vertices)`);
+            assertEqual(p.vertices.length, 4, 'Should have 4 vertices');
+        }
+    });
+
+    test('testfile2.dxf SPLINE has control points and knots', () => {
+        const splines = parsed2.entities.filter(e => e.type === 'SPLINE');
+        assert(splines.length >= 2, 'Should have at least 2 splines');
+        for (const s of splines) {
+            assertEqual(s.degree, 5, 'Degree should be 5');
+            assertEqual(s.controlPoints.length, 10, 'Should have 10 control points');
+            assert(s.knots.length > 0, 'Should have knot values');
+            assertEqual(s.knots.length, 16, 'Should have 16 knots (n+d+1 = 10+5+1)');
+        }
+    });
+
+    test('testfile2.dxf LINE entities have finite coordinates', () => {
+        const lines = parsed2.entities.filter(e => e.type === 'LINE');
+        assert(lines.length >= 10, 'Should have many LINE entities');
+        for (const l of lines) {
+            assert(isFinite(l.start.x) && isFinite(l.start.y), 'Start must be finite');
+            assert(isFinite(l.end.x) && isFinite(l.end.y), 'End must be finite');
+        }
+        console.log(`    Found ${lines.length} LINE entities`);
+    });
+
+    test('testfile2.dxf no null entities', () => {
+        for (let i = 0; i < parsed2.entities.length; i++) {
+            assert(parsed2.entities[i] !== null, `Entity at index ${i} is null`);
+            assert(parsed2.entities[i].type !== undefined, `Entity at index ${i} has no type`);
+        }
+    });
+} else {
+    console.log('\n--- Skipping testfile2.dxf tests (file not found) ---');
+}
+
+// --- SvgGenerator ---
+
+console.log('\n--- SvgGenerator ---');
+
+test('calculateCompositeBounds with single group', () => {
+    const parser = new DxfParser();
+    const parsed = parser.parse(simpleDxf);
+    const gen = new SvgGenerator();
+    const groups = [makeGroup(0, 'test', parsed.entities)];
+    const bounds = gen.calculateCompositeBounds(groups);
+
+    assertApprox(bounds.minX, 0, 0.001, 'minX');
+    assertApprox(bounds.minY, 0, 0.001, 'minY');
+    assertApprox(bounds.maxX, 100, 0.001, 'maxX');
+    assertApprox(bounds.maxY, 50, 0.001, 'maxY');
+});
+
+test('calculateCompositeBounds with offset group', () => {
+    const parser = new DxfParser();
+    const parsed = parser.parse(simpleDxf);
+    const gen = new SvgGenerator();
+    const groups = [makeGroup(0, 'test', parsed.entities, 50, 100)];
+    const bounds = gen.calculateCompositeBounds(groups);
+
+    assertApprox(bounds.minX, 50, 0.001, 'minX shifted');
+    assertApprox(bounds.minY, 100, 0.001, 'minY shifted');
+    assertApprox(bounds.maxX, 150, 0.001, 'maxX shifted');
+    assertApprox(bounds.maxY, 150, 0.001, 'maxY shifted');
+});
+
+test('calculateCompositeBounds with multiple groups', () => {
+    const parser = new DxfParser();
+    const parsed = parser.parse(simpleDxf);
+    const gen = new SvgGenerator();
+    const groups = [
+        makeGroup(0, 'a', parsed.entities, 0, 0),
+        makeGroup(1, 'b', parsed.entities, 200, 0)
+    ];
+    const bounds = gen.calculateCompositeBounds(groups);
+
+    assertApprox(bounds.minX, 0, 0.001, 'minX');
+    assertApprox(bounds.maxX, 300, 0.001, 'maxX (200 offset + 100 width)');
+});
+
+test('generateCompositeSvg export mode has xml declaration', () => {
+    const parser = new DxfParser();
+    const parsed = parser.parse(simpleDxf);
+    const gen = new SvgGenerator();
+    const groups = [makeGroup(0, 'test', parsed.entities)];
+    const svg = gen.generateCompositeSvg(groups, new Map(), 1, true);
+
+    assert(svg.startsWith('<?xml'), 'Should start with xml declaration');
+    assert(svg.includes('</svg>'), 'Should have closing svg tag');
+    assert(!svg.includes('data-element-id'), 'Export should not have data-element-id');
+    assert(!svg.includes('data-group-id'), 'Export should not have data-group-id');
+});
+
+test('generateCompositeSvg preview mode has data attributes', () => {
+    const parser = new DxfParser();
+    const parsed = parser.parse(simpleDxf);
+    const gen = new SvgGenerator();
+    const groups = [makeGroup(0, 'test', parsed.entities)];
+    const svg = gen.generateCompositeSvg(groups, new Map(), 1, false);
+
+    assert(!svg.startsWith('<?xml'), 'Preview should not have xml declaration');
+    assert(svg.includes('data-element-id'), 'Preview should have data-element-id');
+    assert(svg.includes('data-group-id="0"'), 'Preview should have data-group-id');
+});
+
+test('generateCompositeSvg multi-group has group wrapping', () => {
+    const parser = new DxfParser();
+    const parsed = parser.parse(simpleDxf);
+    const gen = new SvgGenerator();
+    const groups = [
+        makeGroup(0, 'a', [parsed.entities[0]], 0, 0),
+        makeGroup(1, 'b', [parsed.entities[1]], 120, 0)
+    ];
+    const svg = gen.generateCompositeSvg(groups, new Map(), 1, false);
+
+    assert(svg.includes('data-group-id="0"'), 'Has group 0');
+    assert(svg.includes('data-group-id="1"'), 'Has group 1');
+    assert(svg.includes('translate(120, 0)'), 'Group 1 has offset');
+});
+
+test('generateCompositeSvg applies color overrides', () => {
+    const parser = new DxfParser();
+    const parsed = parser.parse(simpleDxf);
+    const gen = new SvgGenerator();
+    const groups = [makeGroup(0, 'test', parsed.entities)];
+    const colors = new Map();
+    colors.set('0-0', '#FF0000');
+    colors.set('0-1', '#0000FF');
+
+    const svg = gen.generateCompositeSvg(groups, colors, 1, true);
+    assert(svg.includes('stroke="#FF0000"'), 'First entity should be red');
+    assert(svg.includes('stroke="#0000FF"'), 'Second entity should be blue');
+});
+
+test('generateCompositeSvg with scale affects dimensions', () => {
+    const parser = new DxfParser();
+    const parsed = parser.parse(simpleDxf);
+    const gen = new SvgGenerator();
+    const groups = [makeGroup(0, 'test', parsed.entities)];
+
+    const svg1 = gen.generateCompositeSvg(groups, new Map(), 1, true);
+    const svg25 = gen.generateCompositeSvg(groups, new Map(), 25.4, true);
+
+    const widthMatch1 = svg1.match(/width="([\d.]+)mm"/);
+    const widthMatch25 = svg25.match(/width="([\d.]+)mm"/);
+
+    const w1 = parseFloat(widthMatch1[1]);
+    const w25 = parseFloat(widthMatch25[1]);
+    assertApprox(w25 / w1, 25.4, 0.01, 'Scaled width should be 25.4x larger');
+});
+
+if (hasTestfile2) {
+    test('generateCompositeSvg with testfile2.dxf produces valid SVG', () => {
+        const dxfContent = fs.readFileSync(testfile2Path, 'utf8');
+        const parser = new DxfParser();
+        const parsed = parser.parse(dxfContent);
+        const gen = new SvgGenerator();
+        const groups = [makeGroup(0, 'testfile2', parsed.entities)];
+        const svg = gen.generateCompositeSvg(groups, new Map(), 1, true);
+
+        assert(svg.includes('<svg'), 'Should have svg element');
+        assert(svg.includes('<circle'), 'Should have circle from testfile2');
+        assert(svg.includes('<path'), 'Should have paths from polylines/splines');
+        assert(svg.includes('<line'), 'Should have line elements');
+
+        // Write output for manual inspection
+        fs.writeFileSync(path.join(__dirname, 'testfile2_output.svg'), svg);
+        console.log('    Output written to testfile2_output.svg');
+    });
+
+    test('generateCompositeSvg with testfile2.dxf has reasonable bounds', () => {
+        const dxfContent = fs.readFileSync(testfile2Path, 'utf8');
+        const parser = new DxfParser();
+        const parsed = parser.parse(dxfContent);
+        const gen = new SvgGenerator();
+        const groups = [makeGroup(0, 'testfile2', parsed.entities)];
+        const bounds = gen.calculateCompositeBounds(groups);
+
+        assert(isFinite(bounds.minX) && isFinite(bounds.maxX), 'X bounds should be finite');
+        assert(isFinite(bounds.minY) && isFinite(bounds.maxY), 'Y bounds should be finite');
+        assert(bounds.maxX > bounds.minX, 'Should have positive width');
+        assert(bounds.maxY > bounds.minY, 'Should have positive height');
+        console.log(`    Bounds: (${bounds.minX.toFixed(1)}, ${bounds.minY.toFixed(1)}) to (${bounds.maxX.toFixed(1)}, ${bounds.maxY.toFixed(1)})`);
+    });
+}
+
+// --- DxfWriter ---
+
+console.log('\n--- DxfWriter ---');
+
+test('DxfWriter generates valid DXF structure', () => {
+    const parser = new DxfParser();
+    const parsed = parser.parse(simpleDxf);
+    const groups = [makeGroup(0, 'test', parsed.entities)];
+    const writer = new DxfWriter(groups, new Map());
+    const dxf = writer.generate();
+
+    assert(dxf.includes('SECTION'), 'Should have SECTION');
+    assert(dxf.includes('HEADER'), 'Should have HEADER');
+    assert(dxf.includes('ENTITIES'), 'Should have ENTITIES');
+    assert(dxf.includes('ENDSEC'), 'Should have ENDSEC');
+    assert(dxf.includes('EOF'), 'Should have EOF');
+});
+
+test('DxfWriter writes all entity types', () => {
+    const parser = new DxfParser();
+    const parsed = parser.parse(simpleDxf);
+    const groups = [makeGroup(0, 'test', parsed.entities)];
+    const writer = new DxfWriter(groups, new Map());
+    const dxf = writer.generate();
+
+    assert(dxf.includes('\nLINE\n'), 'Should have LINE entity');
+    assert(dxf.includes('\nCIRCLE\n'), 'Should have CIRCLE entity');
+    assert(dxf.includes('\nARC\n'), 'Should have ARC entity');
+});
+
+test('DxfWriter round-trip: parse -> write -> parse preserves entities', () => {
+    const parser = new DxfParser();
+    const parsed = parser.parse(simpleDxf);
+    const groups = [makeGroup(0, 'test', parsed.entities)];
+
+    const writer = new DxfWriter(groups, new Map());
+    const dxfOut = writer.generate();
+
+    const parsed2 = parser.parse(dxfOut);
+    assertEqual(parsed2.entities.length, parsed.entities.length, 'Entity count should match');
 
     for (let i = 0; i < parsed.entities.length; i++) {
-        assert(parsed.entities[i] !== null, `Entity at index ${i} is null`);
-        assert(parsed.entities[i].type !== undefined, `Entity at index ${i} has no type`);
+        assertEqual(parsed2.entities[i].type, parsed.entities[i].type, `Type mismatch at ${i}`);
     }
 });
 
-// Test 4: Entity types are correct
-test('All entity types are valid', () => {
-    const dxfContent = fs.readFileSync(path.join(__dirname, 'testfile1.dxf'), 'utf8');
+test('DxfWriter round-trip preserves LINE coordinates', () => {
     const parser = new DxfParser();
-    const parsed = parser.parse(dxfContent);
+    const parsed = parser.parse(simpleDxf);
+    const groups = [makeGroup(0, 'test', parsed.entities)];
+    const writer = new DxfWriter(groups, new Map());
+    const parsed2 = parser.parse(writer.generate());
 
-    const validTypes = ['LINE', 'CIRCLE', 'ARC', 'ELLIPSE', 'LWPOLYLINE', 'POLYLINE', 'SPLINE'];
-
-    for (const entity of parsed.entities) {
-        assert(validTypes.includes(entity.type), `Invalid entity type: ${entity.type}`);
-    }
+    const orig = parsed.entities[0];
+    const rt = parsed2.entities[0];
+    assertApprox(rt.start.x, orig.start.x, 0.001, 'start.x');
+    assertApprox(rt.start.y, orig.start.y, 0.001, 'start.y');
+    assertApprox(rt.end.x, orig.end.x, 0.001, 'end.x');
+    assertApprox(rt.end.y, orig.end.y, 0.001, 'end.y');
 });
 
-// Test 5: LINE entities have correct structure
-test('LINE entities have start and end points', () => {
-    const dxfContent = fs.readFileSync(path.join(__dirname, 'testfile1.dxf'), 'utf8');
+test('DxfWriter round-trip preserves CIRCLE', () => {
     const parser = new DxfParser();
-    const parsed = parser.parse(dxfContent);
+    const parsed = parser.parse(simpleDxf);
+    const groups = [makeGroup(0, 'test', parsed.entities)];
+    const writer = new DxfWriter(groups, new Map());
+    const parsed2 = parser.parse(writer.generate());
 
-    const lines = parsed.entities.filter(e => e.type === 'LINE');
-    assert(lines.length > 0, 'Should have LINE entities');
-
-    for (const line of lines) {
-        assert(line.start !== undefined, 'LINE should have start');
-        assert(line.end !== undefined, 'LINE should have end');
-        assert(typeof line.start.x === 'number', 'start.x should be number');
-        assert(typeof line.start.y === 'number', 'start.y should be number');
-        assert(typeof line.end.x === 'number', 'end.x should be number');
-        assert(typeof line.end.y === 'number', 'end.y should be number');
-    }
-    console.log(`  Found ${lines.length} LINE entities`);
+    const orig = parsed.entities[1];
+    const rt = parsed2.entities[1];
+    assertApprox(rt.center.x, orig.center.x, 0.001, 'center.x');
+    assertApprox(rt.center.y, orig.center.y, 0.001, 'center.y');
+    assertApprox(rt.radius, orig.radius, 0.001, 'radius');
 });
 
-// Test 6: CIRCLE entities have correct structure
-test('CIRCLE entities have center and radius', () => {
-    const dxfContent = fs.readFileSync(path.join(__dirname, 'testfile1.dxf'), 'utf8');
+test('DxfWriter round-trip preserves ARC angles', () => {
     const parser = new DxfParser();
-    const parsed = parser.parse(dxfContent);
+    const parsed = parser.parse(simpleDxf);
+    const groups = [makeGroup(0, 'test', parsed.entities)];
+    const writer = new DxfWriter(groups, new Map());
+    const parsed2 = parser.parse(writer.generate());
 
-    const circles = parsed.entities.filter(e => e.type === 'CIRCLE');
-    assert(circles.length > 0, 'Should have CIRCLE entities');
-
-    for (const circle of circles) {
-        assert(circle.center !== undefined, 'CIRCLE should have center');
-        assert(typeof circle.radius === 'number', 'radius should be number');
-        assert(circle.radius > 0, 'radius should be positive');
-    }
-    console.log(`  Found ${circles.length} CIRCLE entities`);
+    const orig = parsed.entities[2];
+    const rt = parsed2.entities[2];
+    assertApprox(rt.startAngle, orig.startAngle, 0.001, 'startAngle');
+    assertApprox(rt.endAngle, orig.endAngle, 0.001, 'endAngle');
 });
 
-// Test 7: LWPOLYLINE entities have vertices
-test('LWPOLYLINE entities have vertices', () => {
-    const dxfContent = fs.readFileSync(path.join(__dirname, 'testfile1.dxf'), 'utf8');
+test('DxfWriter applies group offset to coordinates', () => {
     const parser = new DxfParser();
-    const parsed = parser.parse(dxfContent);
+    const parsed = parser.parse(simpleDxf);
+    const groups = [makeGroup(0, 'test', parsed.entities, 100, 200)];
+    const writer = new DxfWriter(groups, new Map());
+    const parsed2 = parser.parse(writer.generate());
 
-    const polylines = parsed.entities.filter(e => e.type === 'LWPOLYLINE');
-    assert(polylines.length > 0, 'Should have LWPOLYLINE entities');
-
-    for (const pl of polylines) {
-        assert(Array.isArray(pl.vertices), 'vertices should be array');
-        assert(pl.vertices.length >= 2, 'Should have at least 2 vertices');
-    }
-    console.log(`  Found ${polylines.length} LWPOLYLINE entities`);
+    const orig = parsed.entities[0];
+    const rt = parsed2.entities[0];
+    assertApprox(rt.start.x, orig.start.x + 100, 0.001, 'start.x with offset');
+    assertApprox(rt.start.y, orig.start.y + 200, 0.001, 'start.y with offset');
 });
 
-// Test 8: SPLINE entities have control points
-test('SPLINE entities have control points', () => {
-    const dxfContent = fs.readFileSync(path.join(__dirname, 'testfile1.dxf'), 'utf8');
+test('DxfWriter applies color overrides as ACI', () => {
     const parser = new DxfParser();
-    const parsed = parser.parse(dxfContent);
+    const parsed = parser.parse(simpleDxf);
+    const groups = [makeGroup(0, 'test', parsed.entities)];
+    const colors = new Map();
+    colors.set('0-0', '#FF0000');
 
-    const splines = parsed.entities.filter(e => e.type === 'SPLINE');
-    assert(splines.length > 0, 'Should have SPLINE entities');
-
-    for (const spline of splines) {
-        assert(Array.isArray(spline.controlPoints), 'controlPoints should be array');
-        assert(spline.controlPoints.length >= 2, 'Should have at least 2 control points');
-    }
-    console.log(`  Found ${splines.length} SPLINE entities`);
+    const writer = new DxfWriter(groups, colors);
+    const dxf = writer.generate();
+    // ACI 1 = red; should appear as " 62\n1\n" after the LINE entity
+    assert(dxf.includes(' 62\n1\n'), 'Should have ACI color code 1 (red)');
 });
 
-// Test 9: SVG generation works
-test('SVG generation produces valid output', () => {
-    const dxfContent = fs.readFileSync(path.join(__dirname, 'testfile1.dxf'), 'utf8');
-    const parser = new DxfParser();
-    const parsed = parser.parse(dxfContent);
-
-    const generator = new SvgGenerator(parsed.entities);
-    const svg = generator.generateSvg(1);
-
-    assert(svg.includes('<?xml version="1.0"'), 'Should have XML declaration');
-    assert(svg.includes('<svg'), 'Should have SVG element');
-    assert(svg.includes('</svg>'), 'Should have closing SVG tag');
-    assert(svg.includes('viewBox='), 'Should have viewBox');
-    assert(svg.includes('width='), 'Should have width');
-    assert(svg.includes('height='), 'Should have height');
+test('DxfWriter hexToAci maps all toolbar colors', () => {
+    const writer = new DxfWriter([], new Map());
+    assertEqual(writer.hexToAci('#000000'), 7, 'Black -> 7');
+    assertEqual(writer.hexToAci('#FF0000'), 1, 'Red -> 1');
+    assertEqual(writer.hexToAci('#00FF00'), 3, 'Green -> 3');
+    assertEqual(writer.hexToAci('#0000FF'), 5, 'Blue -> 5');
+    assertEqual(writer.hexToAci('#FF00FF'), 6, 'Magenta -> 6');
+    assertEqual(writer.hexToAci('#00FFFF'), 4, 'Cyan -> 4');
+    assertEqual(writer.hexToAci('#FFA500'), 30, 'Orange -> 30');
+    assertEqual(writer.hexToAci('#800080'), 218, 'Purple -> 218');
 });
 
-// Test 10: SVG contains expected elements
-test('SVG contains expected geometry elements', () => {
-    const dxfContent = fs.readFileSync(path.join(__dirname, 'testfile1.dxf'), 'utf8');
-    const parser = new DxfParser();
-    const parsed = parser.parse(dxfContent);
+if (hasTestfile2) {
+    test('DxfWriter round-trip with testfile2.dxf', () => {
+        const dxfContent = fs.readFileSync(testfile2Path, 'utf8');
+        const parser = new DxfParser();
+        const parsed = parser.parse(dxfContent);
+        const groups = [makeGroup(0, 'testfile2', parsed.entities)];
 
-    const generator = new SvgGenerator(parsed.entities);
-    const svg = generator.generateSvg(1);
+        const writer = new DxfWriter(groups, new Map());
+        const dxfOut = writer.generate();
 
-    assert(svg.includes('<line'), 'Should have line elements');
-    assert(svg.includes('<circle'), 'Should have circle elements');
-    assert(svg.includes('<path'), 'Should have path elements (for polylines/splines)');
+        const parsed2 = parser.parse(dxfOut);
+        assertEqual(parsed2.entities.length, parsed.entities.length, 'Entity count');
+
+        for (let i = 0; i < parsed.entities.length; i++) {
+            assertEqual(parsed2.entities[i].type, parsed.entities[i].type, `Type at ${i}`);
+        }
+        console.log(`    Round-tripped ${parsed2.entities.length} entities`);
+
+        // Write for manual inspection
+        fs.writeFileSync(path.join(__dirname, 'testfile2_roundtrip.dxf'), dxfOut);
+        console.log('    Output written to testfile2_roundtrip.dxf');
+    });
+
+    test('DxfWriter round-trip preserves testfile2 CIRCLE', () => {
+        const dxfContent = fs.readFileSync(testfile2Path, 'utf8');
+        const parser = new DxfParser();
+        const parsed = parser.parse(dxfContent);
+        const groups = [makeGroup(0, 'testfile2', parsed.entities)];
+        const writer = new DxfWriter(groups, new Map());
+        const parsed2 = parser.parse(writer.generate());
+
+        const origCircle = parsed.entities.find(e => e.type === 'CIRCLE');
+        const rtCircle = parsed2.entities.find(e => e.type === 'CIRCLE');
+        assertApprox(rtCircle.center.x, origCircle.center.x, 0.001, 'center.x');
+        assertApprox(rtCircle.center.y, origCircle.center.y, 0.001, 'center.y');
+        assertApprox(rtCircle.radius, origCircle.radius, 0.001, 'radius');
+    });
+
+    test('DxfWriter round-trip preserves testfile2 LWPOLYLINE vertices', () => {
+        const dxfContent = fs.readFileSync(testfile2Path, 'utf8');
+        const parser = new DxfParser();
+        const parsed = parser.parse(dxfContent);
+        const groups = [makeGroup(0, 'testfile2', parsed.entities)];
+        const writer = new DxfWriter(groups, new Map());
+        const parsed2 = parser.parse(writer.generate());
+
+        const origPolys = parsed.entities.filter(e => e.type === 'LWPOLYLINE');
+        const rtPolys = parsed2.entities.filter(e => e.type === 'LWPOLYLINE');
+        assertEqual(rtPolys.length, origPolys.length, 'Polyline count');
+
+        for (let p = 0; p < origPolys.length; p++) {
+            assertEqual(rtPolys[p].vertices.length, origPolys[p].vertices.length, `Poly ${p} vertex count`);
+            assertEqual(rtPolys[p].closed, origPolys[p].closed, `Poly ${p} closed flag`);
+            for (let v = 0; v < origPolys[p].vertices.length; v++) {
+                assertApprox(rtPolys[p].vertices[v].x, origPolys[p].vertices[v].x, 0.001, `Poly ${p} V${v}.x`);
+                assertApprox(rtPolys[p].vertices[v].y, origPolys[p].vertices[v].y, 0.001, `Poly ${p} V${v}.y`);
+            }
+        }
+    });
+
+    test('DxfWriter round-trip preserves testfile2 LINE coords', () => {
+        const dxfContent = fs.readFileSync(testfile2Path, 'utf8');
+        const parser = new DxfParser();
+        const parsed = parser.parse(dxfContent);
+        const groups = [makeGroup(0, 'testfile2', parsed.entities)];
+        const writer = new DxfWriter(groups, new Map());
+        const parsed2 = parser.parse(writer.generate());
+
+        const origLines = parsed.entities.filter(e => e.type === 'LINE');
+        const rtLines = parsed2.entities.filter(e => e.type === 'LINE');
+        assertEqual(rtLines.length, origLines.length, 'Line count');
+
+        for (let i = 0; i < origLines.length; i++) {
+            assertApprox(rtLines[i].start.x, origLines[i].start.x, 0.001, `Line ${i} start.x`);
+            assertApprox(rtLines[i].start.y, origLines[i].start.y, 0.001, `Line ${i} start.y`);
+            assertApprox(rtLines[i].end.x, origLines[i].end.x, 0.001, `Line ${i} end.x`);
+            assertApprox(rtLines[i].end.y, origLines[i].end.y, 0.001, `Line ${i} end.y`);
+        }
+    });
+}
+
+// --- Duplicate Detection ---
+
+console.log('\n--- Duplicate Detection ---');
+
+test('Identical LINEs are duplicates', () => {
+    const a = { entity: { type: 'LINE', start: {x:0,y:0}, end: {x:10,y:10} }, ox: 0, oy: 0 };
+    const b = { entity: { type: 'LINE', start: {x:0,y:0}, end: {x:10,y:10} }, ox: 0, oy: 0 };
+    assert(entitiesAreDuplicates(a, b), 'Should be duplicates');
 });
 
-// Test 11: Bounds calculation is reasonable
-test('Bounds calculation produces reasonable values', () => {
-    const dxfContent = fs.readFileSync(path.join(__dirname, 'testfile1.dxf'), 'utf8');
-    const parser = new DxfParser();
-    const parsed = parser.parse(dxfContent);
-
-    const generator = new SvgGenerator(parsed.entities);
-    const bounds = generator.bounds;
-
-    assert(isFinite(bounds.minX), 'minX should be finite');
-    assert(isFinite(bounds.minY), 'minY should be finite');
-    assert(isFinite(bounds.maxX), 'maxX should be finite');
-    assert(isFinite(bounds.maxY), 'maxY should be finite');
-    assert(bounds.maxX > bounds.minX, 'maxX should be greater than minX');
-    assert(bounds.maxY > bounds.minY, 'maxY should be greater than minY');
-
-    console.log(`  Bounds: (${bounds.minX.toFixed(2)}, ${bounds.minY.toFixed(2)}) to (${bounds.maxX.toFixed(2)}, ${bounds.maxY.toFixed(2)})`);
+test('Reversed LINEs are duplicates', () => {
+    const a = { entity: { type: 'LINE', start: {x:0,y:0}, end: {x:10,y:10} }, ox: 0, oy: 0 };
+    const b = { entity: { type: 'LINE', start: {x:10,y:10}, end: {x:0,y:0} }, ox: 0, oy: 0 };
+    assert(entitiesAreDuplicates(a, b), 'Reversed lines should be duplicates');
 });
 
-// Test 12: Write output SVG for manual verification
-test('Write output SVG file for verification', () => {
-    const dxfContent = fs.readFileSync(path.join(__dirname, 'testfile1.dxf'), 'utf8');
-    const parser = new DxfParser();
-    const parsed = parser.parse(dxfContent);
-
-    const generator = new SvgGenerator(parsed.entities);
-    const svg = generator.generateSvg(1);
-
-    fs.writeFileSync(path.join(__dirname, 'testfile1_output.svg'), svg);
-    console.log('  Output written to testfile1_output.svg');
+test('Different LINEs are not duplicates', () => {
+    const a = { entity: { type: 'LINE', start: {x:0,y:0}, end: {x:10,y:10} }, ox: 0, oy: 0 };
+    const b = { entity: { type: 'LINE', start: {x:0,y:0}, end: {x:20,y:20} }, ox: 0, oy: 0 };
+    assert(!entitiesAreDuplicates(a, b), 'Should not be duplicates');
 });
 
+test('LINEs with matching offsets are duplicates', () => {
+    const a = { entity: { type: 'LINE', start: {x:0,y:0}, end: {x:10,y:10} }, ox: 5, oy: 5 };
+    const b = { entity: { type: 'LINE', start: {x:5,y:5}, end: {x:15,y:15} }, ox: 0, oy: 0 };
+    assert(entitiesAreDuplicates(a, b), 'Same absolute position should be duplicates');
+});
+
+test('Identical CIRCLEs are duplicates', () => {
+    const a = { entity: { type: 'CIRCLE', center: {x:5,y:5}, radius: 10 }, ox: 0, oy: 0 };
+    const b = { entity: { type: 'CIRCLE', center: {x:5,y:5}, radius: 10 }, ox: 0, oy: 0 };
+    assert(entitiesAreDuplicates(a, b), 'Should be duplicates');
+});
+
+test('CIRCLEs with different radii are not duplicates', () => {
+    const a = { entity: { type: 'CIRCLE', center: {x:5,y:5}, radius: 10 }, ox: 0, oy: 0 };
+    const b = { entity: { type: 'CIRCLE', center: {x:5,y:5}, radius: 20 }, ox: 0, oy: 0 };
+    assert(!entitiesAreDuplicates(a, b), 'Different radii should not match');
+});
+
+test('Different entity types are not duplicates', () => {
+    const a = { entity: { type: 'LINE', start: {x:0,y:0}, end: {x:10,y:10} }, ox: 0, oy: 0 };
+    const b = { entity: { type: 'CIRCLE', center: {x:5,y:5}, radius: 10 }, ox: 0, oy: 0 };
+    assert(!entitiesAreDuplicates(a, b), 'Different types should not match');
+});
+
+test('Identical ARCs are duplicates', () => {
+    const a = { entity: { type: 'ARC', center: {x:0,y:0}, radius: 5, startAngle: 0, endAngle: 90 }, ox: 0, oy: 0 };
+    const b = { entity: { type: 'ARC', center: {x:0,y:0}, radius: 5, startAngle: 0, endAngle: 90 }, ox: 0, oy: 0 };
+    assert(entitiesAreDuplicates(a, b), 'Should be duplicates');
+});
+
+test('LWPOLYLINE forward match', () => {
+    const verts = [{x:0,y:0,bulge:0},{x:10,y:0,bulge:0},{x:10,y:10,bulge:0}];
+    const a = { entity: { type: 'LWPOLYLINE', vertices: verts, closed: false }, ox: 0, oy: 0 };
+    const b = { entity: { type: 'LWPOLYLINE', vertices: [...verts], closed: false }, ox: 0, oy: 0 };
+    assert(entitiesAreDuplicates(a, b), 'Same vertices should be duplicates');
+});
+
+test('LWPOLYLINE reverse match', () => {
+    const verts = [{x:0,y:0,bulge:0},{x:10,y:0,bulge:0},{x:10,y:10,bulge:0}];
+    const reversed = [...verts].reverse();
+    const a = { entity: { type: 'LWPOLYLINE', vertices: verts, closed: false }, ox: 0, oy: 0 };
+    const b = { entity: { type: 'LWPOLYLINE', vertices: reversed, closed: false }, ox: 0, oy: 0 };
+    assert(entitiesAreDuplicates(a, b), 'Reversed vertices should be duplicates');
+});
+
+// --- getEntityEndpoints ---
+
+console.log('\n--- getEntityEndpoints ---');
+
+test('LINE endpoints', () => {
+    const pts = getEntityEndpoints({ type: 'LINE', start: {x:1,y:2}, end: {x:3,y:4} });
+    assertEqual(pts.length, 2);
+    assertApprox(pts[0].x, 1, 0.001);
+    assertApprox(pts[1].x, 3, 0.001);
+});
+
+test('ARC endpoints computed from angles', () => {
+    const pts = getEntityEndpoints({ type: 'ARC', center: {x:0,y:0}, radius: 10, startAngle: 0, endAngle: 90 });
+    assertEqual(pts.length, 2);
+    assertApprox(pts[0].x, 10, 0.001, 'Start at 0 degrees');
+    assertApprox(pts[0].y, 0, 0.001);
+    assertApprox(pts[1].x, 0, 0.01, 'End at 90 degrees');
+    assertApprox(pts[1].y, 10, 0.001);
+});
+
+test('Open LWPOLYLINE has endpoints', () => {
+    const pts = getEntityEndpoints({
+        type: 'LWPOLYLINE',
+        vertices: [{x:0,y:0},{x:5,y:5},{x:10,y:0}],
+        closed: false
+    });
+    assertEqual(pts.length, 2);
+    assertApprox(pts[0].x, 0, 0.001);
+    assertApprox(pts[1].x, 10, 0.001);
+});
+
+test('Closed LWPOLYLINE has no endpoints', () => {
+    const pts = getEntityEndpoints({
+        type: 'LWPOLYLINE',
+        vertices: [{x:0,y:0},{x:5,y:5},{x:10,y:0}],
+        closed: true
+    });
+    assertEqual(pts.length, 0);
+});
+
+test('CIRCLE has no endpoints', () => {
+    const pts = getEntityEndpoints({ type: 'CIRCLE', center: {x:0,y:0}, radius: 5 });
+    assertEqual(pts.length, 0);
+});
+
+test('SPLINE has endpoints from control points', () => {
+    const pts = getEntityEndpoints({
+        type: 'SPLINE',
+        controlPoints: [{x:0,y:0},{x:5,y:5},{x:10,y:0}]
+    });
+    assertEqual(pts.length, 2);
+    assertApprox(pts[0].x, 0, 0.001);
+    assertApprox(pts[1].x, 10, 0.001);
+});
+
+// --- Multi-group Workflow ---
+
+console.log('\n--- Multi-group Workflow ---');
+
+test('Two groups placed side by side', () => {
+    const parser = new DxfParser();
+    const parsed = parser.parse(simpleDxf);
+    const gen = new SvgGenerator();
+
+    const g1 = makeGroup(0, 'a', parsed.entities, 0, 0);
+    const g2Bounds = gen.calculateBoundsForEntities(parsed.entities);
+    const g1Bounds = gen.calculateCompositeBounds([g1]);
+    const offsetX = g1Bounds.maxX + 10 - g2Bounds.minX;
+
+    const g2 = makeGroup(1, 'b', parsed.entities, offsetX, 0);
+    const groups = [g1, g2];
+
+    const compositeBounds = gen.calculateCompositeBounds(groups);
+    assert(compositeBounds.maxX > g1Bounds.maxX, 'Composite should be wider than single group');
+
+    const svg = gen.generateCompositeSvg(groups, new Map(), 1, false);
+    assert(svg.includes('data-group-id="0"'));
+    assert(svg.includes('data-group-id="1"'));
+});
+
+if (hasTestfile1 && hasTestfile2) {
+    test('Import testfile1 + testfile2 as two groups', () => {
+        const parser = new DxfParser();
+        const gen = new SvgGenerator();
+
+        const parsed1 = parser.parse(fs.readFileSync(testfile1Path, 'utf8'));
+        const parsed2 = parser.parse(fs.readFileSync(testfile2Path, 'utf8'));
+
+        const g1 = makeGroup(0, 'testfile1', parsed1.entities, 0, 0);
+        const g1Bounds = gen.calculateCompositeBounds([g1]);
+        const g2Bounds = gen.calculateBoundsForEntities(parsed2.entities);
+        const offsetX = g1Bounds.maxX + 10 - g2Bounds.minX;
+        const g2 = makeGroup(1, 'testfile2', parsed2.entities, offsetX, 0);
+
+        const groups = [g1, g2];
+        const svg = gen.generateCompositeSvg(groups, new Map(), 1, true);
+        assert(svg.includes('<svg'), 'Should produce valid SVG');
+
+        fs.writeFileSync(path.join(__dirname, 'combined_output.svg'), svg);
+        console.log('    Output written to combined_output.svg');
+
+        // DXF export of combined
+        const writer = new DxfWriter(groups, new Map());
+        const dxf = writer.generate();
+        const reparsed = parser.parse(dxf);
+        assertEqual(reparsed.entities.length, parsed1.entities.length + parsed2.entities.length, 'Combined entity count');
+
+        fs.writeFileSync(path.join(__dirname, 'combined_output.dxf'), dxf);
+        console.log('    Output written to combined_output.dxf');
+    });
+}
+
+// ============================================
 // Summary
-console.log(`\n${'='.repeat(40)}`);
+// ============================================
+
+console.log(`\n${'='.repeat(50)}`);
 console.log(`Tests: ${passed + failed} | Passed: ${passed} | Failed: ${failed}`);
-console.log('='.repeat(40));
+console.log('='.repeat(50));
 
 process.exit(failed > 0 ? 1 : 0);
