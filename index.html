@@ -408,7 +408,18 @@
         .mode-toolbar {
             display: flex;
             gap: 8px;
+            align-items: center;
             margin-bottom: 12px;
+        }
+
+        .toolbar-group {
+            display: inline-flex;
+            gap: 4px;
+            align-items: center;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            padding: 3px 4px;
+            background: #fafafa;
         }
 
         .btn-mode {
@@ -497,14 +508,6 @@
             </div>
             <button class="btn btn-primary" id="downloadBtn" disabled>Download SVG</button>
             <button class="btn btn-primary" id="downloadDxfBtn" disabled>Download DXF</button>
-            <button class="btn btn-primary" id="removeDuplicatesBtn" disabled>Remove Duplicates</button>
-            <select id="dupToleranceSelect" title="Duplicate detection tolerance">
-                <option value="0.01">±0.01 (tight)</option>
-                <option value="0.1" selected>±0.1 (default)</option>
-                <option value="0.5">±0.5</option>
-                <option value="1">±1.0</option>
-                <option value="5">±5.0 (loose)</option>
-            </select>
         </div>
 
         <div class="status" id="status"></div>
@@ -526,6 +529,16 @@
             <div class="mode-toolbar">
                 <button class="btn btn-mode" id="moveModeBtn">Move Mode: OFF</button>
                 <button class="btn btn-mode" id="resetViewBtn">Reset View</button>
+                <span class="toolbar-group">
+                    <button class="btn btn-mode" id="removeDuplicatesBtn">Remove Duplicates</button>
+                    <select id="dupToleranceSelect" title="Duplicate detection tolerance">
+                        <option value="0.01">±0.01 (tight)</option>
+                        <option value="0.1" selected>±0.1 (default)</option>
+                        <option value="0.5">±0.5</option>
+                        <option value="1">±1.0</option>
+                        <option value="5">±5.0 (loose)</option>
+                    </select>
+                </span>
             </div>
 
             <div class="color-toolbar" id="colorToolbar">
@@ -1374,7 +1387,6 @@ ${groupsContent}  </g>
                 previewContainer.classList.remove('visible');
                 downloadBtn.disabled = true;
                 downloadDxfBtn.disabled = true;
-                removeDuplicatesBtn.disabled = true;
                 previewArea.innerHTML = '';
                 baseViewBox = null;
                 baseBounds = null;
@@ -1415,7 +1427,6 @@ ${groupsContent}  </g>
             previewContainer.classList.add('visible');
             downloadBtn.disabled = false;
             downloadDxfBtn.disabled = false;
-            removeDuplicatesBtn.disabled = false;
             colorToolbar.classList.add('visible');
 
             if (moveMode && selectedGroupId !== null) {
