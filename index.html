@@ -775,7 +775,17 @@
                     }
                 }
 
-                return { entities };
+                // Decompose LWPOLYLINE/POLYLINE into individual LINE/ARC segments
+                const expanded = [];
+                for (const entity of entities) {
+                    if (entity.type === 'LWPOLYLINE' || entity.type === 'POLYLINE') {
+                        expanded.push(...this.decomposePolyline(entity));
+                    } else {
+                        expanded.push(entity);
+                    }
+                }
+
+                return { entities: expanded };
             }
 
             parseEntity(type, lines, startIndex) {
@@ -891,6 +901,79 @@
 
                 return { entity, nextIndex: i };
             }
+
+            decomposePolyline(entity) {
+                const verts = entity.vertices;
+                if (verts.length < 2) return [];
+
+                const segments = [];
+                const n = verts.length;
+                const count = entity.closed ? n : n - 1;
+
+                for (let i = 0; i < count; i++) {
+                    const v1 = verts[i];
+                    const v2 = verts[(i + 1) % n];
+
+                    // Skip degenerate zero-length segments
+                    const dx = v2.x - v1.x;
+                    const dy = v2.y - v1.y;
+                    if (dx === 0 && dy === 0) continue;
+
+                    if (v1.bulge && v1.bulge !== 0) {
+                        segments.push(this.bulgeToArcEntity(v1, v2, v1.bulge));
+                    } else {
+                        segments.push({
+                            type: 'LINE',
+                            start: { x: v1.x, y: v1.y },
+                            end: { x: v2.x, y: v2.y }
+                        });
+                    }
+                }
+
+                return segments;
+            }
+
+            bulgeToArcEntity(v1, v2, bulge) {
+                const dx = v2.x - v1.x;
+                const dy = v2.y - v1.y;
+                const chord = Math.sqrt(dx * dx + dy * dy);
+                const sagitta = Math.abs(bulge) * chord / 2;
+                const radius = (chord * chord / 4 + sagitta * sagitta) / (2 * sagitta);
+
+                // Center: offset perpendicular from chord midpoint
+                const midX = (v1.x + v2.x) / 2;
+                const midY = (v1.y + v2.y) / 2;
+                const dist = radius - sagitta;
+                // Unit perpendicular: for bulge > 0 (CCW), offset left of chord direction
+                const perpX = -dy / chord;
+                const perpY = dx / chord;
+                const sign = bulge > 0 ? 1 : -1;
+                const cx = midX + sign * dist * perpX;
+                const cy = midY + sign * dist * perpY;
+
+                // Angles from center to endpoints (in degrees, DXF convention)
+                let startAngle = Math.atan2(v1.y - cy, v1.x - cx) * 180 / Math.PI;
+                let endAngle = Math.atan2(v2.y - cy, v2.x - cx) * 180 / Math.PI;
+
+                // For negative bulge (CW arc), swap start/end to maintain CCW convention
+                if (bulge < 0) {
+                    const tmp = startAngle;
+                    startAngle = endAngle;
+                    endAngle = tmp;
+                }
+
+                // Normalize angles to [0, 360)
+                if (startAngle < 0) startAngle += 360;
+                if (endAngle < 0) endAngle += 360;
+
+                return {
+                    type: 'ARC',
+                    center: { x: cx, y: cy },
+                    radius,
+                    startAngle,
+                    endAngle
+                };
+            }
         }
 
         // ============================================
@@ -934,12 +1017,6 @@
                             updateBounds(entity.center.x + majorLen, entity.center.y + minorLen);
                             break;
                         }
-                        case 'LWPOLYLINE':
-                        case 'POLYLINE':
-                            for (const v of entity.vertices) {
-                                updateBounds(v.x, v.y);
-                            }
-                            break;
                         case 'SPLINE':
                             for (const p of entity.controlPoints) {
                                 updateBounds(p.x, p.y);
@@ -1031,9 +1108,6 @@ ${groupsContent}  </g>
                         return this.arcToSvg(entity, extraAttrs, forExport);
                     case 'ELLIPSE':
                         return this.ellipseToSvg(entity, extraAttrs, forExport);
-                    case 'LWPOLYLINE':
-                    case 'POLYLINE':
-                        return this.polylineToSvg(entity, extraAttrs, forExport);
                     case 'SPLINE':
                         return this.splineToSvg(entity, extraAttrs, forExport);
                     default:
@@ -1091,61 +1165,6 @@ ${groupsContent}  </g>
 
                 const ep = forExport ? '' : ` data-start-x="${x1}" data-start-y="${y1}" data-end-x="${x2}" data-end-y="${y2}"`;
                 return `      <path d="M ${x1} ${y1} A ${rx} ${ry} ${rotation} ${largeArc} 1 ${x2} ${y2}"${ep}${extraAttrs}/>\n`;
-            }
-
-            polylineToSvg(entity, extraAttrs, forExport) {
-                if (entity.vertices.length < 2) return '';
-
-                const startX = entity.vertices[0].x;
-                const startY = entity.vertices[0].y;
-                const endVertex = entity.vertices[entity.vertices.length - 1];
-                const endX = endVertex.x;
-                const endY = endVertex.y;
-
-                let d = `M ${startX} ${startY}`;
-
-                for (let i = 0; i < entity.vertices.length - 1; i++) {
-                    const v1 = entity.vertices[i];
-                    const v2 = entity.vertices[i + 1];
-
-                    if (v1.bulge && v1.bulge !== 0) {
-                        const arc = this.bulgeToArc(v1, v2, v1.bulge);
-                        d += ` A ${arc.radius} ${arc.radius} 0 ${arc.largeArc} ${arc.sweep} ${v2.x} ${v2.y}`;
-                    } else {
-                        d += ` L ${v2.x} ${v2.y}`;
-                    }
-                }
-
-                if (entity.closed && entity.vertices.length > 2) {
-                    const vLast = entity.vertices[entity.vertices.length - 1];
-                    const vFirst = entity.vertices[0];
-
-                    if (vLast.bulge && vLast.bulge !== 0) {
-                        const arc = this.bulgeToArc(vLast, vFirst, vLast.bulge);
-                        d += ` A ${arc.radius} ${arc.radius} 0 ${arc.largeArc} ${arc.sweep} ${vFirst.x} ${vFirst.y}`;
-                    } else {
-                        d += ' Z';
-                    }
-                    const ep = forExport ? '' : ' data-closed="true"';
-                    return `      <path d="${d}"${ep}${extraAttrs}/>\n`;
-                }
-
-                const ep = forExport ? '' : ` data-start-x="${startX}" data-start-y="${startY}" data-end-x="${endX}" data-end-y="${endY}"`;
-                return `      <path d="${d}"${ep}${extraAttrs}/>\n`;
-            }
-
-            bulgeToArc(v1, v2, bulge) {
-                const dx = v2.x - v1.x;
-                const dy = v2.y - v1.y;
-                const chord = Math.sqrt(dx * dx + dy * dy);
-                const sagitta = Math.abs(bulge) * chord / 2;
-                const radius = (chord * chord / 4 + sagitta * sagitta) / (2 * sagitta);
-
-                return {
-                    radius,
-                    largeArc: Math.abs(bulge) > 1 ? 1 : 0,
-                    sweep: bulge > 0 ? 1 : 0
-                };
             }
 
             splineToSvg(entity, extraAttrs, forExport) {
@@ -1299,22 +1318,6 @@ ${groupsContent}  </g>
                         this.writeCode(40, entity.ratio.toFixed(6));
                         this.writeCode(41, entity.startAngle.toFixed(6));
                         this.writeCode(42, entity.endAngle.toFixed(6));
-                        break;
-
-                    case 'LWPOLYLINE':
-                    case 'POLYLINE':
-                        this.writeCode(0, 'LWPOLYLINE');
-                        this.writeCode(8, '0');
-                        if (aci !== null) this.writeCode(62, aci);
-                        this.writeCode(90, entity.vertices.length);
-                        this.writeCode(70, entity.closed ? '1' : '0');
-                        for (const v of entity.vertices) {
-                            this.writeCode(10, (v.x + ox).toFixed(6));
-                            this.writeCode(20, (v.y + oy).toFixed(6));
-                            if (v.bulge && v.bulge !== 0) {
-                                this.writeCode(42, v.bulge.toFixed(6));
-                            }
-                        }
                         break;
 
                     case 'SPLINE':
@@ -1510,13 +1513,6 @@ ${groupsContent}  </g>
                         { x: entity.center.x + entity.radius * Math.cos(endRad), y: entity.center.y + entity.radius * Math.sin(endRad) }
                     ];
                 }
-                case 'LWPOLYLINE':
-                case 'POLYLINE':
-                    if (entity.closed || entity.vertices.length < 2) return [];
-                    return [
-                        { x: entity.vertices[0].x, y: entity.vertices[0].y },
-                        { x: entity.vertices[entity.vertices.length - 1].x, y: entity.vertices[entity.vertices.length - 1].y }
-                    ];
                 case 'SPLINE':
                     if (entity.controlPoints.length < 2) return [];
                     return [
@@ -1602,10 +1598,6 @@ ${groupsContent}  </g>
                         break;
                     case 'ELLIPSE':
                         e.center.x += dx; e.center.y += dy;
-                        break;
-                    case 'LWPOLYLINE':
-                    case 'POLYLINE':
-                        for (const v of e.vertices) { v.x += dx; v.y += dy; }
                         break;
                     case 'SPLINE':
                         if (e.controlPoints) {
@@ -2688,33 +2680,6 @@ ${groupsContent}  </g>
                            valEq(e1.ratio, e2.ratio) &&
                            valEq(e1.startAngle, e2.startAngle) &&
                            valEq(e1.endAngle, e2.endAngle);
-
-                case 'LWPOLYLINE':
-                case 'POLYLINE': {
-                    if (e1.vertices.length !== e2.vertices.length) return false;
-                    if (e1.closed !== e2.closed) return false;
-                    const n = e1.vertices.length;
-                    // Check forward match
-                    let forwardMatch = true;
-                    for (let i = 0; i < n; i++) {
-                        if (!ptEq(e1.vertices[i].x + ox1, e1.vertices[i].y + oy1,
-                                   e2.vertices[i].x + ox2, e2.vertices[i].y + oy2)) {
-                            forwardMatch = false;
-                            break;
-                        }
-                    }
-                    if (forwardMatch) return true;
-                    // Check reverse match
-                    let reverseMatch = true;
-                    for (let i = 0; i < n; i++) {
-                        if (!ptEq(e1.vertices[i].x + ox1, e1.vertices[i].y + oy1,
-                                   e2.vertices[n - 1 - i].x + ox2, e2.vertices[n - 1 - i].y + oy2)) {
-                            reverseMatch = false;
-                            break;
-                        }
-                    }
-                    return reverseMatch;
-                }
 
                 case 'SPLINE': {
                     if (e1.controlPoints.length !== e2.controlPoints.length) return false;

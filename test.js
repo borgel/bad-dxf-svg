@@ -204,7 +204,7 @@ if (hasTestfile1) {
         const dxfContent = fs.readFileSync(testfile1Path, 'utf8');
         const parser = new DxfParser();
         const parsed = parser.parse(dxfContent);
-        const validTypes = ['LINE', 'CIRCLE', 'ARC', 'ELLIPSE', 'LWPOLYLINE', 'POLYLINE', 'SPLINE'];
+        const validTypes = ['LINE', 'CIRCLE', 'ARC', 'ELLIPSE', 'SPLINE'];
         for (const e of parsed.entities) {
             assert(validTypes.includes(e.type), `Invalid type: ${e.type}`);
         }
@@ -243,16 +243,17 @@ if (hasTestfile2) {
         console.log(`    Found ${parsed2.entities.length} entities`);
     });
 
-    test('testfile2.dxf has expected entity types', () => {
+    test('testfile2.dxf has expected entity types (polylines decomposed)', () => {
         assert(parsed2 !== null);
         const types = {};
         for (const e of parsed2.entities) types[e.type] = (types[e.type] || 0) + 1;
         console.log(`    Entity breakdown: ${JSON.stringify(types)}`);
 
         assert(types['CIRCLE'] >= 1, 'Should have at least 1 CIRCLE');
-        assert(types['LWPOLYLINE'] >= 1, 'Should have at least 1 LWPOLYLINE');
+        assert(!types['LWPOLYLINE'], 'Should have no LWPOLYLINE (decomposed)');
+        assert(!types['POLYLINE'], 'Should have no POLYLINE (decomposed)');
         assert(types['SPLINE'] >= 1, 'Should have at least 1 SPLINE');
-        assert(types['LINE'] >= 1, 'Should have at least 1 LINE');
+        assert(types['LINE'] >= 25, 'Should have at least 25 LINE entities (original + decomposed)');
     });
 
     test('testfile2.dxf CIRCLE is parsed correctly', () => {
@@ -263,13 +264,10 @@ if (hasTestfile2) {
         assertApprox(circles[0].radius, 1.5, 0.01, 'Circle radius');
     });
 
-    test('testfile2.dxf LWPOLYLINE closed flag parsed correctly', () => {
-        const polys = parsed2.entities.filter(e => e.type === 'LWPOLYLINE');
-        assert(polys.length >= 3, 'Should have at least 3 polylines');
-        for (const p of polys) {
-            assertEqual(p.closed, true, `Polyline should be closed (has ${p.vertices.length} vertices)`);
-            assertEqual(p.vertices.length, 4, 'Should have 4 vertices');
-        }
+    test('testfile2.dxf closed polylines decomposed into LINE segments', () => {
+        // testfile2 had at least 3 closed 4-vertex polylines → 4 LINE segments each = 12+
+        const lines = parsed2.entities.filter(e => e.type === 'LINE');
+        assert(lines.length >= 12, `Should have at least 12 LINE segments from decomposed polylines, got ${lines.length}`);
     });
 
     test('testfile2.dxf SPLINE has control points and knots', () => {
@@ -301,6 +299,57 @@ if (hasTestfile2) {
     });
 } else {
     console.log('\n--- Skipping testfile2.dxf tests (file not found) ---');
+}
+
+// --- DxfParser: testfile3.dxf (polyline decomposition) ---
+
+const testfile3Path = path.join(__dirname, 'testfile3.dxf');
+const hasTestfile3 = fs.existsSync(testfile3Path);
+
+if (hasTestfile3) {
+    console.log('\n--- DxfParser: testfile3.dxf (polyline decomposition) ---');
+
+    let parsed3 = null;
+
+    test('Parse testfile3.dxf decomposes LWPOLYLINE into segments', () => {
+        const dxfContent = fs.readFileSync(testfile3Path, 'utf8');
+        const parser = new DxfParser();
+        parsed3 = parser.parse(dxfContent);
+        assertEqual(parsed3.entities.length, 25, 'Should have 25 segments (closed 25-vertex polyline)');
+    });
+
+    test('testfile3.dxf has 24 LINE + 1 ARC segments', () => {
+        assert(parsed3 !== null);
+        const types = {};
+        for (const e of parsed3.entities) types[e.type] = (types[e.type] || 0) + 1;
+        console.log(`    Entity breakdown: ${JSON.stringify(types)}`);
+
+        assertEqual(types['LINE'], 24, 'Should have 24 LINE segments');
+        assertEqual(types['ARC'], 1, 'Should have 1 ARC segment');
+    });
+
+    test('testfile3.dxf ARC has valid geometry', () => {
+        const arc = parsed3.entities.find(e => e.type === 'ARC');
+        assert(arc !== null, 'Should have an ARC');
+        assert(isFinite(arc.center.x) && isFinite(arc.center.y), 'ARC center should be finite');
+        assert(arc.radius > 0, 'ARC radius should be positive');
+        assert(isFinite(arc.startAngle) && isFinite(arc.endAngle), 'ARC angles should be finite');
+    });
+
+    test('testfile3.dxf all LINE segments have finite coordinates', () => {
+        const lines = parsed3.entities.filter(e => e.type === 'LINE');
+        for (const l of lines) {
+            assert(isFinite(l.start.x) && isFinite(l.start.y), 'Start must be finite');
+            assert(isFinite(l.end.x) && isFinite(l.end.y), 'End must be finite');
+        }
+    });
+
+    test('testfile3.dxf no LWPOLYLINE entities remain', () => {
+        const polys = parsed3.entities.filter(e => e.type === 'LWPOLYLINE' || e.type === 'POLYLINE');
+        assertEqual(polys.length, 0, 'Should have no polylines after decomposition');
+    });
+} else {
+    console.log('\n--- Skipping testfile3.dxf tests (file not found) ---');
 }
 
 // --- SvgGenerator ---
@@ -617,7 +666,7 @@ if (hasTestfile2) {
         assertApprox(rtCircle.radius, origCircle.radius, 0.001, 'radius');
     });
 
-    test('DxfWriter round-trip preserves testfile2 LWPOLYLINE vertices', () => {
+    test('DxfWriter round-trip preserves testfile2 decomposed LINE segments', () => {
         const dxfContent = fs.readFileSync(testfile2Path, 'utf8');
         const parser = new DxfParser();
         const parsed = parser.parse(dxfContent);
@@ -625,17 +674,15 @@ if (hasTestfile2) {
         const writer = new DxfWriter(groups, new Map());
         const parsed2 = parser.parse(writer.generate());
 
-        const origPolys = parsed.entities.filter(e => e.type === 'LWPOLYLINE');
-        const rtPolys = parsed2.entities.filter(e => e.type === 'LWPOLYLINE');
-        assertEqual(rtPolys.length, origPolys.length, 'Polyline count');
+        const origLines = parsed.entities.filter(e => e.type === 'LINE');
+        const rtLines = parsed2.entities.filter(e => e.type === 'LINE');
+        assertEqual(rtLines.length, origLines.length, 'LINE count after round-trip');
 
-        for (let p = 0; p < origPolys.length; p++) {
-            assertEqual(rtPolys[p].vertices.length, origPolys[p].vertices.length, `Poly ${p} vertex count`);
-            assertEqual(rtPolys[p].closed, origPolys[p].closed, `Poly ${p} closed flag`);
-            for (let v = 0; v < origPolys[p].vertices.length; v++) {
-                assertApprox(rtPolys[p].vertices[v].x, origPolys[p].vertices[v].x, 0.001, `Poly ${p} V${v}.x`);
-                assertApprox(rtPolys[p].vertices[v].y, origPolys[p].vertices[v].y, 0.001, `Poly ${p} V${v}.y`);
-            }
+        for (let i = 0; i < origLines.length; i++) {
+            assertApprox(rtLines[i].start.x, origLines[i].start.x, 0.001, `Line ${i} start.x`);
+            assertApprox(rtLines[i].start.y, origLines[i].start.y, 0.001, `Line ${i} start.y`);
+            assertApprox(rtLines[i].end.x, origLines[i].end.x, 0.001, `Line ${i} end.x`);
+            assertApprox(rtLines[i].end.y, origLines[i].end.y, 0.001, `Line ${i} end.y`);
         }
     });
 
@@ -712,21 +759,6 @@ test('Identical ARCs are duplicates', () => {
     assert(entitiesAreDuplicates(a, b), 'Should be duplicates');
 });
 
-test('LWPOLYLINE forward match', () => {
-    const verts = [{x:0,y:0,bulge:0},{x:10,y:0,bulge:0},{x:10,y:10,bulge:0}];
-    const a = { entity: { type: 'LWPOLYLINE', vertices: verts, closed: false }, ox: 0, oy: 0 };
-    const b = { entity: { type: 'LWPOLYLINE', vertices: [...verts], closed: false }, ox: 0, oy: 0 };
-    assert(entitiesAreDuplicates(a, b), 'Same vertices should be duplicates');
-});
-
-test('LWPOLYLINE reverse match', () => {
-    const verts = [{x:0,y:0,bulge:0},{x:10,y:0,bulge:0},{x:10,y:10,bulge:0}];
-    const reversed = [...verts].reverse();
-    const a = { entity: { type: 'LWPOLYLINE', vertices: verts, closed: false }, ox: 0, oy: 0 };
-    const b = { entity: { type: 'LWPOLYLINE', vertices: reversed, closed: false }, ox: 0, oy: 0 };
-    assert(entitiesAreDuplicates(a, b), 'Reversed vertices should be duplicates');
-});
-
 // --- getEntityEndpoints ---
 
 console.log('\n--- getEntityEndpoints ---');
@@ -745,26 +777,6 @@ test('ARC endpoints computed from angles', () => {
     assertApprox(pts[0].y, 0, 0.001);
     assertApprox(pts[1].x, 0, 0.01, 'End at 90 degrees');
     assertApprox(pts[1].y, 10, 0.001);
-});
-
-test('Open LWPOLYLINE has endpoints', () => {
-    const pts = getEntityEndpoints({
-        type: 'LWPOLYLINE',
-        vertices: [{x:0,y:0},{x:5,y:5},{x:10,y:0}],
-        closed: false
-    });
-    assertEqual(pts.length, 2);
-    assertApprox(pts[0].x, 0, 0.001);
-    assertApprox(pts[1].x, 10, 0.001);
-});
-
-test('Closed LWPOLYLINE has no endpoints', () => {
-    const pts = getEntityEndpoints({
-        type: 'LWPOLYLINE',
-        vertices: [{x:0,y:0},{x:5,y:5},{x:10,y:0}],
-        closed: true
-    });
-    assertEqual(pts.length, 0);
 });
 
 test('CIRCLE has no endpoints', () => {
