@@ -486,6 +486,11 @@
             flex: 1;
         }
 
+        .file-list-item .group-checkbox {
+            margin: 0;
+            cursor: pointer;
+        }
+
         .btn-file-action {
             padding: 3px 8px;
             font-size: 0.8rem;
@@ -630,6 +635,7 @@
             <div class="file-list" id="fileList">
                 <div class="file-list-header">
                     <span>Imported files:</span>
+                    <button class="btn btn-file-action" id="groupSelectedBtn" style="display:none;">Group Selected</button>
                     <button class="btn btn-file-action" id="clearAllBtn">Clear All</button>
                 </div>
                 <div class="file-list-items" id="fileListItems"></div>
@@ -1457,6 +1463,7 @@ ${groupsContent}  </g>
         const deleteSelectionBtn = document.getElementById('deleteSelectionBtn');
         const fileListItems = document.getElementById('fileListItems');
         const clearAllBtn = document.getElementById('clearAllBtn');
+        const groupSelectedBtn = document.getElementById('groupSelectedBtn');
         const moveModeBtn = document.getElementById('moveModeBtn');
         const resetViewBtn = document.getElementById('resetViewBtn');
         const bedToggleBtn = document.getElementById('bedToggleBtn');
@@ -1560,6 +1567,133 @@ ${groupsContent}  </g>
 
         function findGroupById(id) {
             return importedGroups.find(g => g.id === id);
+        }
+
+        function applyOffsetToEntities(entities, dx, dy) {
+            for (const e of entities) {
+                switch (e.type) {
+                    case 'LINE':
+                        e.start.x += dx; e.start.y += dy;
+                        e.end.x += dx; e.end.y += dy;
+                        break;
+                    case 'CIRCLE':
+                    case 'ARC':
+                        e.center.x += dx; e.center.y += dy;
+                        break;
+                    case 'ELLIPSE':
+                        e.center.x += dx; e.center.y += dy;
+                        break;
+                    case 'LWPOLYLINE':
+                    case 'POLYLINE':
+                        for (const v of e.vertices) { v.x += dx; v.y += dy; }
+                        break;
+                    case 'SPLINE':
+                        if (e.controlPoints) {
+                            for (const p of e.controlPoints) { p.x += dx; p.y += dy; }
+                        }
+                        break;
+                }
+            }
+        }
+
+        function groupSelectedFiles(groupIds) {
+            if (groupIds.length < 2) return;
+            saveUndoState();
+
+            const mergedEntities = [];
+            const subGroups = [];
+            const newId = groupIdCounter++;
+            const newOverrides = new Map();
+
+            // Build merged entity list with baked-in offsets
+            for (const gid of groupIds) {
+                const group = findGroupById(gid);
+                if (!group) continue;
+
+                const startIndex = mergedEntities.length;
+                const cloned = JSON.parse(JSON.stringify(group.entities));
+                applyOffsetToEntities(cloned, group.offsetX, group.offsetY);
+
+                // Remap color overrides
+                for (let i = 0; i < cloned.length; i++) {
+                    const oldKey = `${gid}-${i}`;
+                    if (colorOverrides.has(oldKey)) {
+                        newOverrides.set(`${newId}-${startIndex + i}`, colorOverrides.get(oldKey));
+                        colorOverrides.delete(oldKey);
+                    }
+                }
+
+                mergedEntities.push(...cloned);
+                subGroups.push({ filename: group.filename, startIndex, count: cloned.length });
+            }
+
+            // Remove source groups
+            importedGroups = importedGroups.filter(g => !groupIds.includes(g.id));
+
+            // Clean up any remaining overrides for removed groups
+            for (const gid of groupIds) {
+                for (const [key] of colorOverrides) {
+                    if (key.startsWith(`${gid}-`)) colorOverrides.delete(key);
+                }
+            }
+
+            // Add remapped overrides
+            for (const [k, v] of newOverrides) colorOverrides.set(k, v);
+
+            const filenames = subGroups.map(sg => sg.filename);
+            importedGroups.push({
+                id: newId,
+                filename: filenames.join(' + '),
+                entities: mergedEntities,
+                offsetX: 0,
+                offsetY: 0,
+                subGroups: subGroups
+            });
+
+            rebuildCanvas(false);
+            showStatus(`Grouped ${subGroups.length} files into one.`, 'success');
+        }
+
+        function ungroupFile(groupId) {
+            const group = findGroupById(groupId);
+            if (!group || !group.subGroups) return;
+            saveUndoState();
+
+            const restoredGroups = [];
+
+            for (const sg of group.subGroups) {
+                const cloned = JSON.parse(JSON.stringify(group.entities.slice(sg.startIndex, sg.startIndex + sg.count)));
+                const newId = groupIdCounter++;
+
+                // Remap color overrides
+                for (let i = 0; i < cloned.length; i++) {
+                    const oldKey = `${groupId}-${sg.startIndex + i}`;
+                    if (colorOverrides.has(oldKey)) {
+                        colorOverrides.set(`${newId}-${i}`, colorOverrides.get(oldKey));
+                        colorOverrides.delete(oldKey);
+                    }
+                }
+
+                restoredGroups.push({
+                    id: newId,
+                    filename: sg.filename,
+                    entities: cloned,
+                    offsetX: 0,
+                    offsetY: 0
+                });
+            }
+
+            // Remove merged group and add restored ones
+            importedGroups = importedGroups.filter(g => g.id !== groupId);
+            importedGroups.push(...restoredGroups);
+
+            rebuildCanvas(false);
+            showStatus(`Ungrouped into ${restoredGroups.length} files.`, 'success');
+        }
+
+        function updateGroupButton() {
+            const checked = document.querySelectorAll('.group-checkbox:checked').length;
+            groupSelectedBtn.style.display = checked >= 2 ? '' : 'none';
         }
 
         function getScale() {
@@ -2001,13 +2135,20 @@ ${groupsContent}  </g>
             for (const group of importedGroups) {
                 const item = document.createElement('div');
                 item.className = 'file-list-item';
+                const displayName = group.subGroups ? group.filename : group.filename + '.dxf';
+                const ungroupBtn = group.subGroups
+                    ? `<button class="btn-file-action" data-action="ungroup" data-group-id="${group.id}">Ungroup</button>`
+                    : '';
                 item.innerHTML = `
-                    <span class="filename">${group.filename}.dxf</span>
+                    <input type="checkbox" class="group-checkbox" data-group-id="${group.id}">
+                    <span class="filename">${displayName}</span>
                     <button class="btn-file-action" data-action="select" data-group-id="${group.id}">Select</button>
+                    ${ungroupBtn}
                     <button class="btn-remove-file" data-action="remove" data-group-id="${group.id}" title="Remove">&times;</button>
                 `;
                 fileListItems.appendChild(item);
             }
+            updateGroupButton();
         }
 
         function setupSvgInteraction() {
@@ -2339,6 +2480,9 @@ ${groupsContent}  </g>
                     colorOverrides.delete(`${groupId}-${idx}`);
                     deletedCount++;
                 }
+
+                // Invalidate sub-group metadata since indices are now stale
+                delete group.subGroups;
 
                 // Rebuild colorOverrides keys for remaining entities in this group
                 const newOverrides = new Map();
@@ -3059,6 +3203,8 @@ ${groupsContent}  </g>
                     selectedElements.add(el);
                 });
                 updateSelectionInfo();
+            } else if (action === 'ungroup') {
+                ungroupFile(groupId);
             } else if (action === 'remove') {
                 saveUndoState();
                 importedGroups = importedGroups.filter(g => g.id !== groupId);
@@ -3070,6 +3216,20 @@ ${groupsContent}  </g>
                 }
                 rebuildCanvas(true);
             }
+        });
+
+        // Checkbox change → show/hide Group Selected button
+        document.getElementById('fileList').addEventListener('change', function(e) {
+            if (e.target.classList.contains('group-checkbox')) {
+                updateGroupButton();
+            }
+        });
+
+        // Group Selected button
+        groupSelectedBtn.addEventListener('click', function() {
+            const checked = document.querySelectorAll('.group-checkbox:checked');
+            const ids = Array.from(checked).map(cb => parseInt(cb.dataset.groupId));
+            groupSelectedFiles(ids);
         });
 
         clearAllBtn.addEventListener('click', function() {
