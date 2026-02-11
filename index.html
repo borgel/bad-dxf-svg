@@ -188,7 +188,9 @@
             justify-content: center;
             align-items: center;
             min-height: 300px;
-            overflow: auto;
+            overflow: hidden;
+            position: relative;
+            user-select: none;
         }
 
         .preview-area svg {
@@ -295,10 +297,6 @@
         }
 
         /* SVG element selection styles */
-        .preview-area {
-            position: relative;
-        }
-
         .preview-area svg .selectable {
             cursor: pointer;
             transition: filter 0.1s ease;
@@ -336,6 +334,143 @@
             margin-top: 12px;
             text-align: center;
         }
+
+        /* File list */
+        .file-list {
+            background: #f8f8f8;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 12px;
+        }
+
+        .file-list-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+            color: #555;
+            font-weight: 600;
+        }
+
+        .file-list-items {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .file-list-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 8px;
+            background: #fff;
+            border: 1px solid #e8e8e8;
+            border-radius: 4px;
+            font-size: 0.85rem;
+        }
+
+        .file-list-item .filename {
+            flex: 1;
+        }
+
+        .btn-file-action {
+            padding: 3px 8px;
+            font-size: 0.8rem;
+            background: #f0f0f0;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+
+        .btn-file-action:hover {
+            background: #e0e0e0;
+        }
+
+        .btn-remove-file {
+            padding: 2px 6px;
+            font-size: 0.85rem;
+            background: none;
+            border: none;
+            color: #999;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .btn-remove-file:hover {
+            color: #c00;
+        }
+
+        /* Mode toolbar */
+        .mode-toolbar {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .btn-mode {
+            padding: 6px 14px;
+            font-size: 0.85rem;
+            background: #f0f0f0;
+            color: #333;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .btn-mode:hover {
+            background: #e0e0e0;
+        }
+
+        .btn-mode.active {
+            background: #007bff;
+            color: #fff;
+            border-color: #007bff;
+        }
+
+        /* Delete button */
+        .btn-danger {
+            padding: 6px 12px;
+            font-size: 0.85rem;
+            background: #dc3545;
+            color: #fff;
+            border: 1px solid #dc3545;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        .btn-danger:hover {
+            background: #c82333;
+        }
+
+        /* Move mode cursors */
+        .preview-area.move-mode {
+            cursor: grab;
+        }
+
+        .preview-area.move-mode.dragging-group {
+            cursor: grabbing;
+        }
+
+        .preview-area.panning {
+            cursor: move !important;
+        }
+
+        /* Group highlight */
+        .group-highlight {
+            pointer-events: none;
+            vector-effect: non-scaling-stroke;
+        }
+
+        /* Snap indicator */
+        .snap-indicator {
+            pointer-events: none;
+            vector-effect: non-scaling-stroke;
+        }
     </style>
 </head>
 <body>
@@ -345,10 +480,10 @@
 
         <div class="dropzone" id="dropzone">
             <p class="dropzone-text">
-                <strong>Drop a DXF file here</strong><br>
-                or click to browse
+                <strong>Drop DXF files here</strong><br>
+                or click to browse (multiple files supported)
             </p>
-            <input type="file" id="fileInput" accept=".dxf">
+            <input type="file" id="fileInput" accept=".dxf" multiple>
         </div>
 
         <div class="controls">
@@ -361,15 +496,31 @@
                 </select>
             </div>
             <button class="btn btn-primary" id="downloadBtn" disabled>Download SVG</button>
+            <button class="btn btn-primary" id="downloadDxfBtn" disabled>Download DXF</button>
+            <button class="btn btn-primary" id="removeDuplicatesBtn" disabled>Remove Duplicates</button>
         </div>
 
         <div class="status" id="status"></div>
 
         <div class="preview-container" id="previewContainer">
             <div class="preview-header">
-                <span class="preview-title">Preview: <span class="filename" id="previewFilename"></span></span>
+                <span class="preview-title">Preview</span>
                 <span class="dimensions" id="dimensions"></span>
             </div>
+
+            <div class="file-list" id="fileList">
+                <div class="file-list-header">
+                    <span>Imported files:</span>
+                    <button class="btn btn-file-action" id="clearAllBtn">Clear All</button>
+                </div>
+                <div class="file-list-items" id="fileListItems"></div>
+            </div>
+
+            <div class="mode-toolbar">
+                <button class="btn btn-mode" id="moveModeBtn">Move Mode: OFF</button>
+                <button class="btn btn-mode" id="resetViewBtn">Reset View</button>
+            </div>
+
             <div class="color-toolbar" id="colorToolbar">
                 <span class="color-toolbar-label">Set color:</span>
                 <div class="color-swatches" id="colorSwatches">
@@ -384,10 +535,12 @@
                     <input type="color" class="custom-color-input" id="customColor" value="#000000" title="Custom color">
                 </div>
                 <span class="selection-info" id="selectionInfo">0 selected</span>
-                <button class="btn btn-clear-selection" id="clearSelectionBtn">Clear selection</button>
+                <button class="btn btn-danger" id="deleteSelectionBtn">Delete Selected</button>
+                <button class="btn btn-clear-selection" id="clearSelectionBtn">Clear Selection</button>
             </div>
+
             <div class="preview-area" id="previewArea"></div>
-            <p class="select-hint">Click to select, double-click to select connected chain, drag to box-select. Hold Shift to add to selection.</p>
+            <p class="select-hint">Click to select, double-click for chain, drag to box-select, Shift to add. Scroll to zoom, Ctrl+drag or middle-click to pan. Toggle Move Mode to drag groups. Delete key to remove selected.</p>
         </div>
 
         <div class="supported-entities">
@@ -453,11 +606,9 @@
                     const value = lines[i + 1] ? lines[i + 1].trim() : '';
 
                     if (code === 0) {
-                        // Next entity or end of section
                         break;
                     }
 
-                    // Store group codes
                     if (!groupValues[code]) {
                         groupValues[code] = [];
                     }
@@ -466,7 +617,6 @@
                     i += 2;
                 }
 
-                // Parse based on entity type
                 switch (type) {
                     case 'LINE':
                         entity.start = {
@@ -533,16 +683,22 @@
 
                     case 'SPLINE':
                         entity.controlPoints = [];
+                        entity.knots = [];
                         entity.degree = parseInt(groupValues[71]?.[0] || 3);
 
                         const splineX = groupValues[10] || [];
                         const splineY = groupValues[20] || [];
+                        const knotValues = groupValues[40] || [];
 
                         for (let j = 0; j < splineX.length; j++) {
                             entity.controlPoints.push({
                                 x: parseFloat(splineX[j]),
                                 y: parseFloat(splineY[j])
                             });
+                        }
+
+                        for (let j = 0; j < knotValues.length; j++) {
+                            entity.knots.push(parseFloat(knotValues[j]));
                         }
                         break;
 
@@ -555,20 +711,17 @@
         }
 
         // ============================================
-        // SVG Generator
+        // SVG Generator (refactored for groups)
         // ============================================
 
         class SvgGenerator {
-            constructor(entities) {
-                this.entities = entities;
-                this.bounds = this.calculateBounds();
-            }
-
-            calculateBounds() {
+            calculateBoundsForEntities(entities, offsetX = 0, offsetY = 0) {
                 let minX = Infinity, minY = Infinity;
                 let maxX = -Infinity, maxY = -Infinity;
 
                 const updateBounds = (x, y) => {
+                    x += offsetX;
+                    y += offsetY;
                     if (isFinite(x) && isFinite(y)) {
                         minX = Math.min(minX, x);
                         minY = Math.min(minY, y);
@@ -577,7 +730,7 @@
                     }
                 };
 
-                for (const entity of this.entities) {
+                for (const entity of entities) {
                     switch (entity.type) {
                         case 'LINE':
                             updateBounds(entity.start.x, entity.start.y);
@@ -591,12 +744,13 @@
                             updateBounds(entity.center.x - entity.radius, entity.center.y - entity.radius);
                             updateBounds(entity.center.x + entity.radius, entity.center.y + entity.radius);
                             break;
-                        case 'ELLIPSE':
+                        case 'ELLIPSE': {
                             const majorLen = Math.sqrt(entity.majorAxis.x ** 2 + entity.majorAxis.y ** 2);
                             const minorLen = majorLen * entity.ratio;
                             updateBounds(entity.center.x - majorLen, entity.center.y - minorLen);
                             updateBounds(entity.center.x + majorLen, entity.center.y + minorLen);
                             break;
+                        }
                         case 'LWPOLYLINE':
                         case 'POLYLINE':
                             for (const v of entity.vertices) {
@@ -616,57 +770,105 @@
                 return { minX, minY, maxX, maxY };
             }
 
-            generateSvg(scale = 1) {
-                const { minX, minY, maxX, maxY } = this.bounds;
-                const width = (maxX - minX) * scale;
-                const height = (maxY - minY) * scale;
-                const padding = Math.max(width, height) * 0.02;
+            calculateCompositeBounds(groups) {
+                let minX = Infinity, minY = Infinity;
+                let maxX = -Infinity, maxY = -Infinity;
 
-                let svgContent = '';
-
-                for (const entity of this.entities) {
-                    svgContent += this.entityToSvg(entity);
+                for (const group of groups) {
+                    const b = this.calculateBoundsForEntities(group.entities, group.offsetX, group.offsetY);
+                    if (isFinite(b.minX)) {
+                        minX = Math.min(minX, b.minX);
+                        minY = Math.min(minY, b.minY);
+                        maxX = Math.max(maxX, b.maxX);
+                        maxY = Math.max(maxY, b.maxY);
+                    }
                 }
 
-                return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg"
-     viewBox="${minX - padding} ${-(maxY + padding)} ${(maxX - minX) + padding * 2} ${(maxY - minY) + padding * 2}"
-     width="${width}mm"
-     height="${height}mm">
+                if (!isFinite(minX)) { minX = 0; minY = 0; maxX = 100; maxY = 100; }
+                return { minX, minY, maxX, maxY };
+            }
+
+            generateCompositeSvg(groups, colorOverrides, scale = 1, forExport = false) {
+                const bounds = this.calculateCompositeBounds(groups);
+                const { minX, minY, maxX, maxY } = bounds;
+                const width = maxX - minX;
+                const height = maxY - minY;
+                const padding = Math.max(width, height) * 0.02;
+
+                let groupsContent = '';
+                for (const group of groups) {
+                    const content = this.generateGroupContent(group, colorOverrides, forExport);
+                    if (forExport) {
+                        groupsContent += `    <g transform="translate(${group.offsetX}, ${group.offsetY})">\n${content}    </g>\n`;
+                    } else {
+                        groupsContent += `    <g data-group-id="${group.id}" transform="translate(${group.offsetX}, ${group.offsetY})">\n${content}    </g>\n`;
+                    }
+                }
+
+                const vbX = minX - padding;
+                const vbY = -(maxY + padding);
+                const vbW = width + padding * 2;
+                const vbH = height + padding * 2;
+
+                const xmlDecl = forExport ? '<?xml version="1.0" encoding="UTF-8"?>\n' : '';
+
+                return `${xmlDecl}<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="${vbX} ${vbY} ${vbW} ${vbH}"
+     width="${(width * scale).toFixed(2)}mm"
+     height="${(height * scale).toFixed(2)}mm">
   <g transform="scale(1, -1)" stroke="#000000" stroke-width="0.5" fill="none">
-${svgContent}  </g>
+${groupsContent}  </g>
 </svg>`;
             }
 
-            entityToSvg(entity) {
+            generateGroupContent(group, colorOverrides, forExport) {
+                let content = '';
+                for (let i = 0; i < group.entities.length; i++) {
+                    content += this.entityToSvg(group.entities[i], group.id, i, colorOverrides, forExport);
+                }
+                return content;
+            }
+
+            entityToSvg(entity, groupId, entityIndex, colorOverrides, forExport) {
+                let extraAttrs = '';
+                const colorKey = `${groupId}-${entityIndex}`;
+                if (colorOverrides && colorOverrides.has(colorKey)) {
+                    extraAttrs += ` stroke="${colorOverrides.get(colorKey)}"`;
+                }
+                if (!forExport) {
+                    extraAttrs += ` data-element-id="${entityIndex}"`;
+                }
+
                 switch (entity.type) {
                     case 'LINE':
-                        // Add endpoint data attributes for chain selection
-                        return `    <line x1="${entity.start.x}" y1="${entity.start.y}" x2="${entity.end.x}" y2="${entity.end.y}" data-start-x="${entity.start.x}" data-start-y="${entity.start.y}" data-end-x="${entity.end.x}" data-end-y="${entity.end.y}"/>\n`;
-
+                        return this.lineToSvg(entity, extraAttrs, forExport);
                     case 'CIRCLE':
-                        // Circles are closed shapes - no endpoints
-                        return `    <circle cx="${entity.center.x}" cy="${entity.center.y}" r="${entity.radius}" data-closed="true"/>\n`;
-
+                        return this.circleToSvg(entity, extraAttrs, forExport);
                     case 'ARC':
-                        return this.arcToPath(entity);
-
+                        return this.arcToSvg(entity, extraAttrs, forExport);
                     case 'ELLIPSE':
-                        return this.ellipseToPath(entity);
-
+                        return this.ellipseToSvg(entity, extraAttrs, forExport);
                     case 'LWPOLYLINE':
                     case 'POLYLINE':
-                        return this.polylineToPath(entity);
-
+                        return this.polylineToSvg(entity, extraAttrs, forExport);
                     case 'SPLINE':
-                        return this.splineToPath(entity);
-
+                        return this.splineToSvg(entity, extraAttrs, forExport);
                     default:
                         return '';
                 }
             }
 
-            arcToPath(entity) {
+            lineToSvg(entity, extraAttrs, forExport) {
+                const ep = forExport ? '' : ` data-start-x="${entity.start.x}" data-start-y="${entity.start.y}" data-end-x="${entity.end.x}" data-end-y="${entity.end.y}"`;
+                return `      <line x1="${entity.start.x}" y1="${entity.start.y}" x2="${entity.end.x}" y2="${entity.end.y}"${ep}${extraAttrs}/>\n`;
+            }
+
+            circleToSvg(entity, extraAttrs, forExport) {
+                const ep = forExport ? '' : ' data-closed="true"';
+                return `      <circle cx="${entity.center.x}" cy="${entity.center.y}" r="${entity.radius}"${ep}${extraAttrs}/>\n`;
+            }
+
+            arcToSvg(entity, extraAttrs, forExport) {
                 const { center, radius, startAngle, endAngle } = entity;
                 const startRad = startAngle * Math.PI / 180;
                 const endRad = endAngle * Math.PI / 180;
@@ -676,26 +878,25 @@ ${svgContent}  </g>
                 const x2 = center.x + radius * Math.cos(endRad);
                 const y2 = center.y + radius * Math.sin(endRad);
 
-                // Determine arc direction and large arc flag
                 let sweepAngle = endAngle - startAngle;
                 if (sweepAngle < 0) sweepAngle += 360;
                 const largeArc = sweepAngle > 180 ? 1 : 0;
 
-                return `    <path d="M ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2}" data-start-x="${x1}" data-start-y="${y1}" data-end-x="${x2}" data-end-y="${y2}"/>\n`;
+                const ep = forExport ? '' : ` data-start-x="${x1}" data-start-y="${y1}" data-end-x="${x2}" data-end-y="${y2}"`;
+                return `      <path d="M ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2}"${ep}${extraAttrs}/>\n`;
             }
 
-            ellipseToPath(entity) {
+            ellipseToSvg(entity, extraAttrs, forExport) {
                 const { center, majorAxis, ratio, startAngle, endAngle } = entity;
                 const rx = Math.sqrt(majorAxis.x ** 2 + majorAxis.y ** 2);
                 const ry = rx * ratio;
                 const rotation = Math.atan2(majorAxis.y, majorAxis.x) * 180 / Math.PI;
 
-                // Full ellipse
                 if (Math.abs(endAngle - startAngle - Math.PI * 2) < 0.01 || (startAngle === 0 && endAngle === 0)) {
-                    return `    <ellipse cx="${center.x}" cy="${center.y}" rx="${rx}" ry="${ry}" transform="rotate(${rotation} ${center.x} ${center.y})" data-closed="true"/>\n`;
+                    const ep = forExport ? '' : ' data-closed="true"';
+                    return `      <ellipse cx="${center.x}" cy="${center.y}" rx="${rx}" ry="${ry}" transform="rotate(${rotation} ${center.x} ${center.y})"${ep}${extraAttrs}/>\n`;
                 }
 
-                // Partial ellipse (arc)
                 const x1 = center.x + rx * Math.cos(startAngle);
                 const y1 = center.y + ry * Math.sin(startAngle);
                 const x2 = center.x + rx * Math.cos(endAngle);
@@ -705,10 +906,11 @@ ${svgContent}  </g>
                 if (sweepAngle < 0) sweepAngle += Math.PI * 2;
                 const largeArc = sweepAngle > Math.PI ? 1 : 0;
 
-                return `    <path d="M ${x1} ${y1} A ${rx} ${ry} ${rotation} ${largeArc} 1 ${x2} ${y2}" data-start-x="${x1}" data-start-y="${y1}" data-end-x="${x2}" data-end-y="${y2}"/>\n`;
+                const ep = forExport ? '' : ` data-start-x="${x1}" data-start-y="${y1}" data-end-x="${x2}" data-end-y="${y2}"`;
+                return `      <path d="M ${x1} ${y1} A ${rx} ${ry} ${rotation} ${largeArc} 1 ${x2} ${y2}"${ep}${extraAttrs}/>\n`;
             }
 
-            polylineToPath(entity) {
+            polylineToSvg(entity, extraAttrs, forExport) {
                 if (entity.vertices.length < 2) return '';
 
                 const startX = entity.vertices[0].x;
@@ -724,16 +926,13 @@ ${svgContent}  </g>
                     const v2 = entity.vertices[i + 1];
 
                     if (v1.bulge && v1.bulge !== 0) {
-                        // Arc segment
                         const arc = this.bulgeToArc(v1, v2, v1.bulge);
                         d += ` A ${arc.radius} ${arc.radius} 0 ${arc.largeArc} ${arc.sweep} ${v2.x} ${v2.y}`;
                     } else {
-                        // Line segment
                         d += ` L ${v2.x} ${v2.y}`;
                     }
                 }
 
-                // Handle closed polyline
                 if (entity.closed && entity.vertices.length > 2) {
                     const vLast = entity.vertices[entity.vertices.length - 1];
                     const vFirst = entity.vertices[0];
@@ -744,10 +943,12 @@ ${svgContent}  </g>
                     } else {
                         d += ' Z';
                     }
-                    return `    <path d="${d}" data-closed="true"/>\n`;
+                    const ep = forExport ? '' : ' data-closed="true"';
+                    return `      <path d="${d}"${ep}${extraAttrs}/>\n`;
                 }
 
-                return `    <path d="${d}" data-start-x="${startX}" data-start-y="${startY}" data-end-x="${endX}" data-end-y="${endY}"/>\n`;
+                const ep = forExport ? '' : ` data-start-x="${startX}" data-start-y="${startY}" data-end-x="${endX}" data-end-y="${endY}"`;
+                return `      <path d="${d}"${ep}${extraAttrs}/>\n`;
             }
 
             bulgeToArc(v1, v2, bulge) {
@@ -764,10 +965,9 @@ ${svgContent}  </g>
                 };
             }
 
-            splineToPath(entity) {
+            splineToSvg(entity, extraAttrs, forExport) {
                 if (entity.controlPoints.length < 2) return '';
 
-                // Approximate spline with line segments through interpolated points
                 const points = this.interpolateSpline(entity.controlPoints, entity.degree);
 
                 const startX = points[0].x;
@@ -780,15 +980,15 @@ ${svgContent}  </g>
                     d += ` L ${points[i].x} ${points[i].y}`;
                 }
 
-                return `    <path d="${d}" data-start-x="${startX}" data-start-y="${startY}" data-end-x="${endX}" data-end-y="${endY}"/>\n`;
+                const ep = forExport ? '' : ` data-start-x="${startX}" data-start-y="${startY}" data-end-x="${endX}" data-end-y="${endY}"`;
+                return `      <path d="${d}"${ep}${extraAttrs}/>\n`;
             }
 
             interpolateSpline(controlPoints, degree) {
-                // Simple Catmull-Rom spline interpolation
                 if (controlPoints.length < 2) return controlPoints;
 
                 const result = [];
-                const segments = 20; // Points per segment
+                const segments = 20;
 
                 for (let i = 0; i < controlPoints.length - 1; i++) {
                     const p0 = controlPoints[Math.max(0, i - 1)];
@@ -815,10 +1015,163 @@ ${svgContent}  </g>
                     }
                 }
 
-                // Add final point
                 result.push(controlPoints[controlPoints.length - 1]);
-
                 return result;
+            }
+        }
+
+        // ============================================
+        // DXF Writer
+        // ============================================
+
+        class DxfWriter {
+            constructor(groups, colorOverrides) {
+                this.groups = groups;
+                this.colorOverrides = colorOverrides;
+                this.output = '';
+            }
+
+            generate() {
+                this.writeHeader();
+                this.writeEntitiesSection();
+                this.output += '  0\nEOF\n';
+                return this.output;
+            }
+
+            writeCode(code, value) {
+                const codeStr = code.toString();
+                const padding = codeStr.length >= 3 ? '' : codeStr.length === 2 ? ' ' : '  ';
+                this.output += padding + codeStr + '\n' + value + '\n';
+            }
+
+            writeHeader() {
+                this.writeCode(0, 'SECTION');
+                this.writeCode(2, 'HEADER');
+                this.writeCode(9, '$ACADVER');
+                this.writeCode(1, 'AC1009');
+                this.writeCode(9, '$INSUNITS');
+                this.writeCode(70, '4');
+                this.writeCode(0, 'ENDSEC');
+            }
+
+            writeEntitiesSection() {
+                this.writeCode(0, 'SECTION');
+                this.writeCode(2, 'ENTITIES');
+
+                for (const group of this.groups) {
+                    for (let i = 0; i < group.entities.length; i++) {
+                        const entity = group.entities[i];
+                        const colorKey = `${group.id}-${i}`;
+                        const color = this.colorOverrides.get(colorKey);
+                        const aci = color ? this.hexToAci(color) : null;
+                        this.writeEntity(entity, group.offsetX, group.offsetY, aci);
+                    }
+                }
+
+                this.writeCode(0, 'ENDSEC');
+            }
+
+            writeEntity(entity, ox, oy, aci) {
+                switch (entity.type) {
+                    case 'LINE':
+                        this.writeCode(0, 'LINE');
+                        this.writeCode(8, '0');
+                        if (aci !== null) this.writeCode(62, aci);
+                        this.writeCode(10, (entity.start.x + ox).toFixed(6));
+                        this.writeCode(20, (entity.start.y + oy).toFixed(6));
+                        this.writeCode(11, (entity.end.x + ox).toFixed(6));
+                        this.writeCode(21, (entity.end.y + oy).toFixed(6));
+                        break;
+
+                    case 'CIRCLE':
+                        this.writeCode(0, 'CIRCLE');
+                        this.writeCode(8, '0');
+                        if (aci !== null) this.writeCode(62, aci);
+                        this.writeCode(10, (entity.center.x + ox).toFixed(6));
+                        this.writeCode(20, (entity.center.y + oy).toFixed(6));
+                        this.writeCode(40, entity.radius.toFixed(6));
+                        break;
+
+                    case 'ARC':
+                        this.writeCode(0, 'ARC');
+                        this.writeCode(8, '0');
+                        if (aci !== null) this.writeCode(62, aci);
+                        this.writeCode(10, (entity.center.x + ox).toFixed(6));
+                        this.writeCode(20, (entity.center.y + oy).toFixed(6));
+                        this.writeCode(40, entity.radius.toFixed(6));
+                        this.writeCode(50, entity.startAngle.toFixed(6));
+                        this.writeCode(51, entity.endAngle.toFixed(6));
+                        break;
+
+                    case 'ELLIPSE':
+                        this.writeCode(0, 'ELLIPSE');
+                        this.writeCode(8, '0');
+                        if (aci !== null) this.writeCode(62, aci);
+                        this.writeCode(10, (entity.center.x + ox).toFixed(6));
+                        this.writeCode(20, (entity.center.y + oy).toFixed(6));
+                        this.writeCode(30, '0.0');
+                        this.writeCode(11, entity.majorAxis.x.toFixed(6));
+                        this.writeCode(21, entity.majorAxis.y.toFixed(6));
+                        this.writeCode(31, '0.0');
+                        this.writeCode(40, entity.ratio.toFixed(6));
+                        this.writeCode(41, entity.startAngle.toFixed(6));
+                        this.writeCode(42, entity.endAngle.toFixed(6));
+                        break;
+
+                    case 'LWPOLYLINE':
+                    case 'POLYLINE':
+                        this.writeCode(0, 'LWPOLYLINE');
+                        this.writeCode(8, '0');
+                        if (aci !== null) this.writeCode(62, aci);
+                        this.writeCode(90, entity.vertices.length);
+                        this.writeCode(70, entity.closed ? '1' : '0');
+                        for (const v of entity.vertices) {
+                            this.writeCode(10, (v.x + ox).toFixed(6));
+                            this.writeCode(20, (v.y + oy).toFixed(6));
+                            if (v.bulge && v.bulge !== 0) {
+                                this.writeCode(42, v.bulge.toFixed(6));
+                            }
+                        }
+                        break;
+
+                    case 'SPLINE':
+                        this.writeCode(0, 'SPLINE');
+                        this.writeCode(8, '0');
+                        if (aci !== null) this.writeCode(62, aci);
+                        this.writeCode(70, '8');
+                        const deg = entity.degree || 3;
+                        this.writeCode(71, deg);
+                        const n = entity.controlPoints.length;
+                        let knots = entity.knots;
+                        if (!knots || knots.length === 0) {
+                            const numKnots = n + deg + 1;
+                            knots = [];
+                            for (let k = 0; k < numKnots; k++) {
+                                if (k <= deg) knots.push(0.0);
+                                else if (k >= n) knots.push(1.0);
+                                else knots.push((k - deg) / (n - deg));
+                            }
+                        }
+                        this.writeCode(72, knots.length);
+                        this.writeCode(73, n);
+                        for (const k of knots) {
+                            this.writeCode(40, k.toFixed(6));
+                        }
+                        for (const pt of entity.controlPoints) {
+                            this.writeCode(10, (pt.x + ox).toFixed(6));
+                            this.writeCode(20, (pt.y + oy).toFixed(6));
+                            this.writeCode(30, '0.0');
+                        }
+                        break;
+                }
+            }
+
+            hexToAci(hex) {
+                const map = {
+                    '#000000': 7, '#FF0000': 1, '#00FF00': 3, '#0000FF': 5,
+                    '#FF00FF': 6, '#00FFFF': 4, '#FFA500': 30, '#800080': 218
+                };
+                return map[hex.toUpperCase()] || 7;
             }
         }
 
@@ -826,27 +1179,1122 @@ ${svgContent}  </g>
         // Main Application
         // ============================================
 
+        // --- State ---
+        let importedGroups = [];
+        let groupIdCounter = 0;
+        let colorOverrides = new Map();
+        let selectedElements = new Set();
+
+        // Viewport
+        let viewCenterX = 0, viewCenterY = 0;
+        let viewZoom = 1;
+        let baseViewBox = null;
+        let baseBounds = null;
+
+        // Move mode
+        let moveMode = false;
+        let selectedGroupId = null;
+
+        // Interaction state
+        let isPanning = false;
+        let panStartScreenX = 0, panStartScreenY = 0;
+
+        let isDragSelecting = false;
+        let didDragSelect = false;
+        let dragSelectStartX = 0, dragSelectStartY = 0;
+        let selectionBoxEl = null;
+        let dragSelectStartTarget = null;
+
+        let isMovingGroup = false;
+        let didStartMove = false;
+        let moveLastScreenX = 0, moveLastScreenY = 0;
+
+        // Snap
+        let otherGroupEndpoints = [];
+        let dragGroupEndpoints = [];
+        const SNAP_TOLERANCE = 5.0;
+        const CONNECTION_TOLERANCE = 0.5;
+        const DUPLICATE_TOLERANCE = 0.1;
+
+        // Element interaction map
+        let elementMap = new Map();
+
+        // --- DOM References ---
         const dropzone = document.getElementById('dropzone');
         const fileInput = document.getElementById('fileInput');
         const unitSelect = document.getElementById('unitSelect');
         const downloadBtn = document.getElementById('downloadBtn');
+        const downloadDxfBtn = document.getElementById('downloadDxfBtn');
+        const removeDuplicatesBtn = document.getElementById('removeDuplicatesBtn');
         const status = document.getElementById('status');
         const previewContainer = document.getElementById('previewContainer');
         const previewArea = document.getElementById('previewArea');
-        const previewFilename = document.getElementById('previewFilename');
         const dimensions = document.getElementById('dimensions');
         const colorToolbar = document.getElementById('colorToolbar');
         const colorSwatches = document.getElementById('colorSwatches');
         const customColor = document.getElementById('customColor');
         const selectionInfo = document.getElementById('selectionInfo');
         const clearSelectionBtn = document.getElementById('clearSelectionBtn');
+        const deleteSelectionBtn = document.getElementById('deleteSelectionBtn');
+        const fileListItems = document.getElementById('fileListItems');
+        const clearAllBtn = document.getElementById('clearAllBtn');
+        const moveModeBtn = document.getElementById('moveModeBtn');
+        const resetViewBtn = document.getElementById('resetViewBtn');
 
-        let currentSvgString = null;
-        let currentFilename = '';
-        let currentDxfText = null;
-        let selectedElements = new Set();
+        // --- Utility Functions ---
 
-        // Event listeners
+        function getEntityEndpoints(entity) {
+            switch (entity.type) {
+                case 'LINE':
+                    return [
+                        { x: entity.start.x, y: entity.start.y },
+                        { x: entity.end.x, y: entity.end.y }
+                    ];
+                case 'ARC': {
+                    const startRad = entity.startAngle * Math.PI / 180;
+                    const endRad = entity.endAngle * Math.PI / 180;
+                    return [
+                        { x: entity.center.x + entity.radius * Math.cos(startRad), y: entity.center.y + entity.radius * Math.sin(startRad) },
+                        { x: entity.center.x + entity.radius * Math.cos(endRad), y: entity.center.y + entity.radius * Math.sin(endRad) }
+                    ];
+                }
+                case 'LWPOLYLINE':
+                case 'POLYLINE':
+                    if (entity.closed || entity.vertices.length < 2) return [];
+                    return [
+                        { x: entity.vertices[0].x, y: entity.vertices[0].y },
+                        { x: entity.vertices[entity.vertices.length - 1].x, y: entity.vertices[entity.vertices.length - 1].y }
+                    ];
+                case 'SPLINE':
+                    if (entity.controlPoints.length < 2) return [];
+                    return [
+                        { x: entity.controlPoints[0].x, y: entity.controlPoints[0].y },
+                        { x: entity.controlPoints[entity.controlPoints.length - 1].x, y: entity.controlPoints[entity.controlPoints.length - 1].y }
+                    ];
+                default:
+                    return [];
+            }
+        }
+
+        function pointsAreClose(p1, p2, tolerance) {
+            const dx = p1.x - p2.x;
+            const dy = p1.y - p2.y;
+            return Math.sqrt(dx * dx + dy * dy) <= tolerance;
+        }
+
+        function getElementEndpoints(el) {
+            if (el.dataset.closed === 'true') return null;
+            const startX = parseFloat(el.dataset.startX);
+            const startY = parseFloat(el.dataset.startY);
+            const endX = parseFloat(el.dataset.endX);
+            const endY = parseFloat(el.dataset.endY);
+            if (isNaN(startX) || isNaN(startY) || isNaN(endX) || isNaN(endY)) return null;
+            return { start: { x: startX, y: startY }, end: { x: endX, y: endY } };
+        }
+
+        function findConnectedElements(startElement, allElements) {
+            const connected = new Set([startElement]);
+            const toProcess = [startElement];
+
+            while (toProcess.length > 0) {
+                const current = toProcess.pop();
+                const currentEndpoints = getElementEndpoints(current);
+                if (!currentEndpoints) continue;
+
+                allElements.forEach(el => {
+                    if (connected.has(el)) return;
+                    const elEndpoints = getElementEndpoints(el);
+                    if (!elEndpoints) return;
+
+                    const isConnected =
+                        pointsAreClose(currentEndpoints.start, elEndpoints.start, CONNECTION_TOLERANCE) ||
+                        pointsAreClose(currentEndpoints.start, elEndpoints.end, CONNECTION_TOLERANCE) ||
+                        pointsAreClose(currentEndpoints.end, elEndpoints.start, CONNECTION_TOLERANCE) ||
+                        pointsAreClose(currentEndpoints.end, elEndpoints.end, CONNECTION_TOLERANCE);
+
+                    if (isConnected) {
+                        connected.add(el);
+                        toProcess.push(el);
+                    }
+                });
+            }
+
+            return connected;
+        }
+
+        function findGroupIdFromElement(el) {
+            let current = el;
+            while (current && current !== previewArea) {
+                if (current.dataset && current.dataset.groupId !== undefined) {
+                    return parseInt(current.dataset.groupId);
+                }
+                current = current.parentElement;
+            }
+            return null;
+        }
+
+        function findGroupById(id) {
+            return importedGroups.find(g => g.id === id);
+        }
+
+        function getScale() {
+            const unitSetting = unitSelect.value;
+            if (unitSetting === 'in') return 25.4;
+            if (unitSetting === 'mm') return 1;
+            // Auto-detect
+            if (importedGroups.length === 0) return 1;
+            const gen = new SvgGenerator();
+            const bounds = gen.calculateCompositeBounds(importedGroups);
+            const maxDim = Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY);
+            if (maxDim < 1) return 25.4;
+            return 1;
+        }
+
+        function showStatus(message, type) {
+            status.textContent = message;
+            status.className = 'status ' + type;
+        }
+
+        // --- Core Functions ---
+
+        function rebuildCanvas(resetView = true) {
+            selectedElements.clear();
+            updateSelectionInfo();
+            elementMap.clear();
+
+            if (importedGroups.length === 0) {
+                previewContainer.classList.remove('visible');
+                downloadBtn.disabled = true;
+                downloadDxfBtn.disabled = true;
+                removeDuplicatesBtn.disabled = true;
+                previewArea.innerHTML = '';
+                baseViewBox = null;
+                baseBounds = null;
+                status.className = 'status';
+                return;
+            }
+
+            const generator = new SvgGenerator();
+            const bounds = generator.calculateCompositeBounds(importedGroups);
+            baseBounds = bounds;
+
+            const width = bounds.maxX - bounds.minX;
+            const height = bounds.maxY - bounds.minY;
+            const padding = Math.max(width, height) * 0.02;
+
+            const svgVbX = bounds.minX - padding;
+            const svgVbY = -(bounds.maxY + padding);
+            const svgVbW = width + padding * 2;
+            const svgVbH = height + padding * 2;
+            baseViewBox = { x: svgVbX, y: svgVbY, w: svgVbW, h: svgVbH };
+
+            const scale = getScale();
+            const svgString = generator.generateCompositeSvg(importedGroups, colorOverrides, scale, false);
+            previewArea.innerHTML = svgString;
+
+            setupSvgInteraction();
+
+            if (resetView) {
+                viewCenterX = svgVbX + svgVbW / 2;
+                viewCenterY = svgVbY + svgVbH / 2;
+                viewZoom = 1;
+            }
+            updateViewBox();
+
+            updateFileList();
+            updateDimensionsDisplay();
+
+            previewContainer.classList.add('visible');
+            downloadBtn.disabled = false;
+            downloadDxfBtn.disabled = false;
+            removeDuplicatesBtn.disabled = false;
+            colorToolbar.classList.add('visible');
+
+            if (moveMode && selectedGroupId !== null) {
+                showGroupHighlight(selectedGroupId);
+            }
+
+            if (moveMode) {
+                previewArea.classList.add('move-mode');
+            }
+
+            const totalEntities = importedGroups.reduce((sum, g) => sum + g.entities.length, 0);
+            showStatus(`${importedGroups.length} file(s) loaded, ${totalEntities} total entities.`, 'success');
+        }
+
+        function updateViewBox() {
+            const svg = previewArea.querySelector('svg');
+            if (!svg || !baseViewBox) return;
+
+            const w = baseViewBox.w / viewZoom;
+            const h = baseViewBox.h / viewZoom;
+            svg.setAttribute('viewBox', `${viewCenterX - w / 2} ${viewCenterY - h / 2} ${w} ${h}`);
+        }
+
+        function updateDimensionsDisplay() {
+            if (!baseBounds) return;
+            const scale = getScale();
+            const width = baseBounds.maxX - baseBounds.minX;
+            const height = baseBounds.maxY - baseBounds.minY;
+            const finalWidth = (width * scale).toFixed(2);
+            const finalHeight = (height * scale).toFixed(2);
+            const unitSetting = unitSelect.value;
+            let detectedUnit = 'mm';
+            if (unitSetting === 'in' || (unitSetting === 'auto' && scale === 25.4)) {
+                detectedUnit = 'inches (converted to mm)';
+            }
+            dimensions.textContent = `${finalWidth} x ${finalHeight} mm (${detectedUnit})`;
+        }
+
+        function updateFileList() {
+            fileListItems.innerHTML = '';
+            for (const group of importedGroups) {
+                const item = document.createElement('div');
+                item.className = 'file-list-item';
+                item.innerHTML = `
+                    <span class="filename">${group.filename}.dxf</span>
+                    <button class="btn-file-action" data-action="select" data-group-id="${group.id}">Select</button>
+                    <button class="btn-remove-file" data-action="remove" data-group-id="${group.id}" title="Remove">&times;</button>
+                `;
+                fileListItems.appendChild(item);
+            }
+        }
+
+        function setupSvgInteraction() {
+            const svgElement = previewArea.querySelector('svg');
+            if (!svgElement) return;
+
+            elementMap.clear();
+
+            const geometryElements = svgElement.querySelectorAll('line, circle, ellipse, path, polyline, polygon, rect:not(.group-highlight)');
+
+            geometryElements.forEach(el => {
+                if (el.dataset.elementId === undefined) return;
+                el.classList.add('selectable');
+
+                const hitArea = el.cloneNode(true);
+                hitArea.classList.remove('selectable');
+                hitArea.classList.add('hit-area');
+                hitArea.removeAttribute('data-element-id');
+                hitArea.dataset.forElement = el.dataset.elementId;
+
+                el.parentNode.insertBefore(hitArea, el);
+                elementMap.set(hitArea, el);
+            });
+        }
+
+        function showGroupHighlight(groupId) {
+            clearGroupHighlight();
+            const svg = previewArea.querySelector('svg');
+            if (!svg) return;
+
+            const groupG = svg.querySelector(`g[data-group-id="${groupId}"]`);
+            if (!groupG) return;
+
+            const bbox = groupG.getBBox();
+            const pad = 2;
+
+            const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            rect.setAttribute('x', bbox.x - pad);
+            rect.setAttribute('y', bbox.y - pad);
+            rect.setAttribute('width', bbox.width + pad * 2);
+            rect.setAttribute('height', bbox.height + pad * 2);
+            rect.setAttribute('class', 'group-highlight');
+            rect.setAttribute('stroke', '#007bff');
+            rect.setAttribute('stroke-width', '2');
+            rect.setAttribute('stroke-dasharray', '6,4');
+            rect.setAttribute('fill', 'none');
+            rect.setAttribute('pointer-events', 'none');
+            rect.setAttribute('vector-effect', 'non-scaling-stroke');
+
+            groupG.appendChild(rect);
+        }
+
+        function clearGroupHighlight() {
+            const svg = previewArea.querySelector('svg');
+            if (!svg) return;
+            svg.querySelectorAll('.group-highlight').forEach(el => el.remove());
+        }
+
+        // --- Selection Functions ---
+
+        function selectElement(el, shiftKey) {
+            if (shiftKey) {
+                if (selectedElements.has(el)) {
+                    el.classList.remove('selected');
+                    selectedElements.delete(el);
+                } else {
+                    el.classList.add('selected');
+                    selectedElements.add(el);
+                }
+            } else {
+                selectedElements.forEach(selected => selected.classList.remove('selected'));
+                selectedElements.clear();
+                el.classList.add('selected');
+                selectedElements.add(el);
+            }
+            updateSelectionInfo();
+        }
+
+        function selectConnectedChain(el, shiftKey) {
+            const svgElement = previewArea.querySelector('svg');
+            if (!svgElement) return;
+            const allSelectables = Array.from(svgElement.querySelectorAll('.selectable'));
+            const connected = findConnectedElements(el, allSelectables);
+
+            if (!shiftKey) {
+                selectedElements.forEach(selected => selected.classList.remove('selected'));
+                selectedElements.clear();
+            }
+
+            connected.forEach(connectedEl => {
+                connectedEl.classList.add('selected');
+                selectedElements.add(connectedEl);
+            });
+
+            updateSelectionInfo();
+        }
+
+        function clearSelection() {
+            selectedElements.forEach(el => el.classList.remove('selected'));
+            selectedElements.clear();
+            updateSelectionInfo();
+        }
+
+        function updateSelectionInfo() {
+            const count = selectedElements.size;
+            selectionInfo.textContent = count === 0 ? '0 selected' :
+                count === 1 ? '1 element selected' : `${count} elements selected`;
+        }
+
+        function applyColorToSelection(color) {
+            if (selectedElements.size === 0) return;
+
+            selectedElements.forEach(el => {
+                el.setAttribute('stroke', color);
+                // Also store in colorOverrides for export
+                const groupId = findGroupIdFromElement(el);
+                const elementId = el.dataset.elementId;
+                if (groupId !== null && elementId !== undefined) {
+                    colorOverrides.set(`${groupId}-${elementId}`, color);
+                }
+            });
+
+            updateSelectionInfo();
+        }
+
+        // --- Snap Functions ---
+
+        function precomputeSnapPoints(dragGroupId) {
+            otherGroupEndpoints = [];
+            dragGroupEndpoints = [];
+
+            for (const group of importedGroups) {
+                if (group.id === dragGroupId) {
+                    for (const entity of group.entities) {
+                        const pts = getEntityEndpoints(entity);
+                        for (const pt of pts) {
+                            dragGroupEndpoints.push({ x: pt.x, y: pt.y });
+                        }
+                    }
+                } else {
+                    for (const entity of group.entities) {
+                        const pts = getEntityEndpoints(entity);
+                        for (const pt of pts) {
+                            otherGroupEndpoints.push({
+                                x: pt.x + group.offsetX,
+                                y: pt.y + group.offsetY
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        function findSnapPoint(proposedOffsetX, proposedOffsetY) {
+            let bestDist = SNAP_TOLERANCE;
+            let snapDelta = null;
+            let snapPoint = null;
+
+            for (const dPt of dragGroupEndpoints) {
+                const absX = dPt.x + proposedOffsetX;
+                const absY = dPt.y + proposedOffsetY;
+
+                for (const oPt of otherGroupEndpoints) {
+                    const dx = oPt.x - absX;
+                    const dy = oPt.y - absY;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist < bestDist) {
+                        bestDist = dist;
+                        snapDelta = { x: dx, y: dy };
+                        snapPoint = { x: oPt.x, y: oPt.y };
+                    }
+                }
+            }
+
+            return { snapDelta, snapPoint };
+        }
+
+        function showSnapIndicator(point) {
+            clearSnapIndicators();
+            const svg = previewArea.querySelector('svg');
+            if (!svg) return;
+
+            const outerG = svg.querySelector('g');
+            if (!outerG) return;
+
+            const size = 3;
+            const ns = 'http://www.w3.org/2000/svg';
+
+            // Horizontal line
+            const h = document.createElementNS(ns, 'line');
+            h.setAttribute('x1', point.x - size);
+            h.setAttribute('y1', point.y);
+            h.setAttribute('x2', point.x + size);
+            h.setAttribute('y2', point.y);
+            h.setAttribute('stroke', '#00cc00');
+            h.setAttribute('stroke-width', '2');
+            h.setAttribute('class', 'snap-indicator');
+            h.setAttribute('vector-effect', 'non-scaling-stroke');
+
+            // Vertical line
+            const v = document.createElementNS(ns, 'line');
+            v.setAttribute('x1', point.x);
+            v.setAttribute('y1', point.y - size);
+            v.setAttribute('x2', point.x);
+            v.setAttribute('y2', point.y + size);
+            v.setAttribute('stroke', '#00cc00');
+            v.setAttribute('stroke-width', '2');
+            v.setAttribute('class', 'snap-indicator');
+            v.setAttribute('vector-effect', 'non-scaling-stroke');
+
+            outerG.appendChild(h);
+            outerG.appendChild(v);
+        }
+
+        function clearSnapIndicators() {
+            const svg = previewArea.querySelector('svg');
+            if (!svg) return;
+            svg.querySelectorAll('.snap-indicator').forEach(el => el.remove());
+        }
+
+        // --- Action Functions ---
+
+        function handleFiles(files) {
+            const validFiles = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.dxf'));
+            if (validFiles.length === 0) {
+                showStatus('Please select DXF file(s).', 'error');
+                return;
+            }
+
+            showStatus('Reading files...', 'info');
+
+            const readPromises = validFiles.map(file => {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => resolve({ name: file.name, content: e.target.result });
+                    reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
+                    reader.readAsText(file);
+                });
+            });
+
+            Promise.all(readPromises).then(results => {
+                const parser = new DxfParser();
+                const generator = new SvgGenerator();
+                let addedCount = 0;
+
+                for (const { name, content } of results) {
+                    try {
+                        const parsed = parser.parse(content);
+                        if (!parsed.entities || parsed.entities.length === 0) {
+                            continue;
+                        }
+
+                        const filename = name.replace(/\.dxf$/i, '');
+
+                        let offsetX = 0, offsetY = 0;
+                        if (importedGroups.length > 0) {
+                            const bounds = generator.calculateCompositeBounds(importedGroups);
+                            const newBounds = generator.calculateBoundsForEntities(parsed.entities);
+                            offsetX = bounds.maxX + 10 - newBounds.minX;
+                        }
+
+                        importedGroups.push({
+                            id: groupIdCounter++,
+                            filename: filename,
+                            entities: parsed.entities,
+                            offsetX: offsetX,
+                            offsetY: offsetY
+                        });
+                        addedCount++;
+                    } catch (err) {
+                        showStatus(`Error parsing ${name}: ${err.message}`, 'error');
+                    }
+                }
+
+                if (addedCount > 0) {
+                    rebuildCanvas(true);
+                }
+            }).catch(err => {
+                showStatus('Error reading files: ' + err.message, 'error');
+            });
+        }
+
+        function deleteSelection() {
+            if (selectedElements.size === 0) return;
+
+            // Collect which entities to delete: map of groupId -> Set of entityIndex
+            const toDelete = new Map();
+
+            selectedElements.forEach(el => {
+                const groupId = findGroupIdFromElement(el);
+                const elementId = parseInt(el.dataset.elementId);
+                if (groupId !== null && !isNaN(elementId)) {
+                    if (!toDelete.has(groupId)) {
+                        toDelete.set(groupId, new Set());
+                    }
+                    toDelete.get(groupId).add(elementId);
+                }
+            });
+
+            let deletedCount = 0;
+
+            // Process deletions (iterate in reverse to preserve indices)
+            for (const [groupId, entityIndices] of toDelete) {
+                const group = findGroupById(groupId);
+                if (!group) continue;
+
+                // Remove entities in reverse index order
+                const sortedIndices = Array.from(entityIndices).sort((a, b) => b - a);
+                for (const idx of sortedIndices) {
+                    group.entities.splice(idx, 1);
+                    colorOverrides.delete(`${groupId}-${idx}`);
+                    deletedCount++;
+                }
+
+                // Rebuild colorOverrides keys for remaining entities in this group
+                const newOverrides = new Map();
+                for (const [key, value] of colorOverrides) {
+                    const [gid, eidStr] = key.split('-');
+                    if (parseInt(gid) === groupId) {
+                        // This entity's index may have shifted
+                        // We need to recalculate
+                    } else {
+                        newOverrides.set(key, value);
+                    }
+                }
+                // Re-add the remaining entries for this group
+                // Since we deleted indices, the remaining entities shifted
+                // We need to rebuild based on new positions
+                // Simplest: clear all overrides for this group and re-apply visible colors
+                // Actually, after splice the indices shifted. Let's rebuild properly.
+            }
+
+            // Rebuild all colorOverrides from scratch based on DOM state before rebuild
+            // Actually, simpler approach: just rebuild colorOverrides for affected groups
+            // Since indices shifted, we need to recapture. Let's just clear overrides for
+            // affected groups - the user will need to recolor. This is acceptable.
+            for (const groupId of toDelete.keys()) {
+                // Remove all overrides for this group
+                for (const [key] of colorOverrides) {
+                    if (key.startsWith(`${groupId}-`)) {
+                        colorOverrides.delete(key);
+                    }
+                }
+            }
+
+            // Remove empty groups
+            importedGroups = importedGroups.filter(g => g.entities.length > 0);
+
+            showStatus(`Deleted ${deletedCount} element(s).`, 'success');
+            rebuildCanvas(false);
+        }
+
+        function removeDuplicates() {
+            if (importedGroups.length === 0) return;
+
+            let removedCount = 0;
+
+            // Build a flat list of all entities with absolute coordinates info
+            const allEntities = [];
+            for (const group of importedGroups) {
+                for (let i = 0; i < group.entities.length; i++) {
+                    allEntities.push({
+                        entity: group.entities[i],
+                        groupId: group.id,
+                        entityIndex: i,
+                        ox: group.offsetX,
+                        oy: group.offsetY
+                    });
+                }
+            }
+
+            // Find duplicates
+            const toRemove = new Set(); // indices in allEntities
+            for (let i = 0; i < allEntities.length; i++) {
+                if (toRemove.has(i)) continue;
+                for (let j = i + 1; j < allEntities.length; j++) {
+                    if (toRemove.has(j)) continue;
+                    if (entitiesAreDuplicates(allEntities[i], allEntities[j])) {
+                        toRemove.add(j);
+                    }
+                }
+            }
+
+            if (toRemove.size === 0) {
+                showStatus('No duplicates found.', 'info');
+                return;
+            }
+
+            // Collect removals by group
+            const groupRemovals = new Map();
+            for (const idx of toRemove) {
+                const entry = allEntities[idx];
+                if (!groupRemovals.has(entry.groupId)) {
+                    groupRemovals.set(entry.groupId, new Set());
+                }
+                groupRemovals.get(entry.groupId).add(entry.entityIndex);
+            }
+
+            // Remove entities
+            for (const [groupId, indices] of groupRemovals) {
+                const group = findGroupById(groupId);
+                if (!group) continue;
+
+                const sortedIndices = Array.from(indices).sort((a, b) => b - a);
+                for (const idx of sortedIndices) {
+                    group.entities.splice(idx, 1);
+                    removedCount++;
+                }
+
+                // Clear color overrides for this group (indices shifted)
+                for (const [key] of colorOverrides) {
+                    if (key.startsWith(`${groupId}-`)) {
+                        colorOverrides.delete(key);
+                    }
+                }
+            }
+
+            // Remove empty groups
+            importedGroups = importedGroups.filter(g => g.entities.length > 0);
+
+            showStatus(`Removed ${removedCount} duplicate entities.`, 'success');
+            rebuildCanvas(false);
+        }
+
+        function entitiesAreDuplicates(a, b) {
+            const e1 = a.entity, e2 = b.entity;
+            const ox1 = a.ox, oy1 = a.oy, ox2 = b.ox, oy2 = b.oy;
+
+            if (e1.type !== e2.type) return false;
+            const TOL = DUPLICATE_TOLERANCE;
+
+            function ptEq(x1, y1, x2, y2) {
+                return Math.abs(x1 - x2) < TOL && Math.abs(y1 - y2) < TOL;
+            }
+
+            function valEq(a, b) {
+                return Math.abs(a - b) < TOL;
+            }
+
+            switch (e1.type) {
+                case 'LINE':
+                    return (ptEq(e1.start.x + ox1, e1.start.y + oy1, e2.start.x + ox2, e2.start.y + oy2) &&
+                            ptEq(e1.end.x + ox1, e1.end.y + oy1, e2.end.x + ox2, e2.end.y + oy2)) ||
+                           (ptEq(e1.start.x + ox1, e1.start.y + oy1, e2.end.x + ox2, e2.end.y + oy2) &&
+                            ptEq(e1.end.x + ox1, e1.end.y + oy1, e2.start.x + ox2, e2.start.y + oy2));
+
+                case 'CIRCLE':
+                    return ptEq(e1.center.x + ox1, e1.center.y + oy1, e2.center.x + ox2, e2.center.y + oy2) &&
+                           valEq(e1.radius, e2.radius);
+
+                case 'ARC':
+                    return ptEq(e1.center.x + ox1, e1.center.y + oy1, e2.center.x + ox2, e2.center.y + oy2) &&
+                           valEq(e1.radius, e2.radius) &&
+                           valEq(e1.startAngle, e2.startAngle) &&
+                           valEq(e1.endAngle, e2.endAngle);
+
+                case 'ELLIPSE':
+                    return ptEq(e1.center.x + ox1, e1.center.y + oy1, e2.center.x + ox2, e2.center.y + oy2) &&
+                           ptEq(e1.majorAxis.x, e1.majorAxis.y, e2.majorAxis.x, e2.majorAxis.y) &&
+                           valEq(e1.ratio, e2.ratio) &&
+                           valEq(e1.startAngle, e2.startAngle) &&
+                           valEq(e1.endAngle, e2.endAngle);
+
+                case 'LWPOLYLINE':
+                case 'POLYLINE': {
+                    if (e1.vertices.length !== e2.vertices.length) return false;
+                    if (e1.closed !== e2.closed) return false;
+                    const n = e1.vertices.length;
+                    // Check forward match
+                    let forwardMatch = true;
+                    for (let i = 0; i < n; i++) {
+                        if (!ptEq(e1.vertices[i].x + ox1, e1.vertices[i].y + oy1,
+                                   e2.vertices[i].x + ox2, e2.vertices[i].y + oy2)) {
+                            forwardMatch = false;
+                            break;
+                        }
+                    }
+                    if (forwardMatch) return true;
+                    // Check reverse match
+                    let reverseMatch = true;
+                    for (let i = 0; i < n; i++) {
+                        if (!ptEq(e1.vertices[i].x + ox1, e1.vertices[i].y + oy1,
+                                   e2.vertices[n - 1 - i].x + ox2, e2.vertices[n - 1 - i].y + oy2)) {
+                            reverseMatch = false;
+                            break;
+                        }
+                    }
+                    return reverseMatch;
+                }
+
+                case 'SPLINE': {
+                    if (e1.controlPoints.length !== e2.controlPoints.length) return false;
+                    const m = e1.controlPoints.length;
+                    let fwd = true;
+                    for (let i = 0; i < m; i++) {
+                        if (!ptEq(e1.controlPoints[i].x + ox1, e1.controlPoints[i].y + oy1,
+                                   e2.controlPoints[i].x + ox2, e2.controlPoints[i].y + oy2)) {
+                            fwd = false;
+                            break;
+                        }
+                    }
+                    return fwd;
+                }
+
+                default:
+                    return false;
+            }
+        }
+
+        function downloadSvg() {
+            if (importedGroups.length === 0) return;
+            const generator = new SvgGenerator();
+            const scale = getScale();
+            const svgString = generator.generateCompositeSvg(importedGroups, colorOverrides, scale, true);
+
+            const filename = importedGroups.length === 1 ? importedGroups[0].filename : 'combined';
+            const blob = new Blob([svgString], { type: 'image/svg+xml' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename + '.svg';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function downloadDxf() {
+            if (importedGroups.length === 0) return;
+            const writer = new DxfWriter(importedGroups, colorOverrides);
+            const dxfString = writer.generate();
+
+            const filename = importedGroups.length === 1 ? importedGroups[0].filename : 'combined';
+            const blob = new Blob([dxfString], { type: 'application/dxf' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename + '.dxf';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        // --- Event Handlers ---
+
+        function handleWheel(e) {
+            e.preventDefault();
+            const svg = previewArea.querySelector('svg');
+            if (!svg || !baseViewBox) return;
+
+            const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+            const newZoom = Math.max(0.1, Math.min(20, viewZoom * zoomFactor));
+
+            // Get cursor position as fraction of SVG element
+            const rect = svg.getBoundingClientRect();
+            const fracX = (e.clientX - rect.left) / rect.width;
+            const fracY = (e.clientY - rect.top) / rect.height;
+
+            // Current view dimensions
+            const w = baseViewBox.w / viewZoom;
+            const h = baseViewBox.h / viewZoom;
+
+            // Cursor position in SVG viewBox space
+            const cursorX = (viewCenterX - w / 2) + fracX * w;
+            const cursorY = (viewCenterY - h / 2) + fracY * h;
+
+            // New view dimensions
+            const newW = baseViewBox.w / newZoom;
+            const newH = baseViewBox.h / newZoom;
+
+            // Adjust center to keep cursor at same screen position
+            viewCenterX = cursorX + newW * (0.5 - fracX);
+            viewCenterY = cursorY + newH * (0.5 - fracY);
+            viewZoom = newZoom;
+
+            updateViewBox();
+        }
+
+        function handleMouseDown(e) {
+            // Middle button or Ctrl+left button (when not in move mode) → pan
+            if (e.button === 1 || (e.button === 0 && e.ctrlKey)) {
+                isPanning = true;
+                panStartScreenX = e.clientX;
+                panStartScreenY = e.clientY;
+                previewArea.classList.add('panning');
+                e.preventDefault();
+                return;
+            }
+
+            if (e.button !== 0) return;
+
+            // Move mode: group interaction
+            if (moveMode) {
+                let targetElement = e.target;
+                if (targetElement.classList.contains('hit-area')) {
+                    targetElement = elementMap.get(targetElement) || targetElement;
+                }
+
+                const clickedGroupId = findGroupIdFromElement(targetElement);
+
+                if (clickedGroupId !== null) {
+                    selectedGroupId = clickedGroupId;
+                    showGroupHighlight(selectedGroupId);
+                    isMovingGroup = true;
+                    didStartMove = false;
+                    moveLastScreenX = e.clientX;
+                    moveLastScreenY = e.clientY;
+                    precomputeSnapPoints(selectedGroupId);
+                } else {
+                    selectedGroupId = null;
+                    clearGroupHighlight();
+                }
+                e.preventDefault();
+                return;
+            }
+
+            // Normal selection mode: start potential drag-select
+            const rect = previewArea.getBoundingClientRect();
+            dragSelectStartX = e.clientX - rect.left;
+            dragSelectStartY = e.clientY - rect.top;
+            dragSelectStartTarget = e.target;
+            isDragSelecting = true;
+            didDragSelect = false;
+
+            selectionBoxEl = document.createElement('div');
+            selectionBoxEl.className = 'selection-box';
+            selectionBoxEl.style.left = dragSelectStartX + 'px';
+            selectionBoxEl.style.top = dragSelectStartY + 'px';
+            selectionBoxEl.style.width = '0px';
+            selectionBoxEl.style.height = '0px';
+            selectionBoxEl.style.display = 'none';
+            previewArea.appendChild(selectionBoxEl);
+
+            e.preventDefault();
+        }
+
+        function handleMouseMove(e) {
+            if (isPanning) {
+                const svg = previewArea.querySelector('svg');
+                if (!svg || !baseViewBox) return;
+
+                const dx = e.clientX - panStartScreenX;
+                const dy = e.clientY - panStartScreenY;
+                panStartScreenX = e.clientX;
+                panStartScreenY = e.clientY;
+
+                const rect = svg.getBoundingClientRect();
+                const w = baseViewBox.w / viewZoom;
+                const h = baseViewBox.h / viewZoom;
+
+                viewCenterX -= dx * (w / rect.width);
+                viewCenterY -= dy * (h / rect.height);
+                updateViewBox();
+                return;
+            }
+
+            if (isMovingGroup) {
+                const dx = e.clientX - moveLastScreenX;
+                const dy = e.clientY - moveLastScreenY;
+
+                if (!didStartMove && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+                    didStartMove = true;
+                    previewArea.classList.add('dragging-group');
+                }
+
+                if (didStartMove) {
+                    moveLastScreenX = e.clientX;
+                    moveLastScreenY = e.clientY;
+
+                    const svg = previewArea.querySelector('svg');
+                    if (!svg || !baseViewBox) return;
+
+                    const rect = svg.getBoundingClientRect();
+                    const w = baseViewBox.w / viewZoom;
+                    const h = baseViewBox.h / viewZoom;
+
+                    // Convert screen pixels to DXF coordinates
+                    const dxfDeltaX = dx * (w / rect.width);
+                    const dxfDeltaY = -(dy * (h / rect.height));
+
+                    const group = findGroupById(selectedGroupId);
+                    if (!group) return;
+
+                    group.offsetX += dxfDeltaX;
+                    group.offsetY += dxfDeltaY;
+
+                    // Check for snap
+                    const snap = findSnapPoint(group.offsetX, group.offsetY);
+                    if (snap.snapDelta) {
+                        group.offsetX += snap.snapDelta.x;
+                        group.offsetY += snap.snapDelta.y;
+                        showSnapIndicator(snap.snapPoint);
+                    } else {
+                        clearSnapIndicators();
+                    }
+
+                    // Update the group's transform directly (no full rebuild)
+                    const groupG = svg.querySelector(`g[data-group-id="${selectedGroupId}"]`);
+                    if (groupG) {
+                        groupG.setAttribute('transform', `translate(${group.offsetX}, ${group.offsetY})`);
+                    }
+
+                    // Update group highlight
+                    showGroupHighlight(selectedGroupId);
+                }
+                return;
+            }
+
+            if (isDragSelecting && selectionBoxEl) {
+                const rect = previewArea.getBoundingClientRect();
+                const currentX = e.clientX - rect.left;
+                const currentY = e.clientY - rect.top;
+
+                const width = Math.abs(currentX - dragSelectStartX);
+                const height = Math.abs(currentY - dragSelectStartY);
+
+                if (width > 5 || height > 5) {
+                    didDragSelect = true;
+                    selectionBoxEl.style.display = 'block';
+
+                    const left = Math.min(dragSelectStartX, currentX);
+                    const top = Math.min(dragSelectStartY, currentY);
+
+                    selectionBoxEl.style.left = left + 'px';
+                    selectionBoxEl.style.top = top + 'px';
+                    selectionBoxEl.style.width = width + 'px';
+                    selectionBoxEl.style.height = height + 'px';
+                }
+            }
+        }
+
+        function handleMouseUp(e) {
+            if (isPanning) {
+                isPanning = false;
+                previewArea.classList.remove('panning');
+                return;
+            }
+
+            if (isMovingGroup) {
+                isMovingGroup = false;
+                previewArea.classList.remove('dragging-group');
+                clearSnapIndicators();
+
+                if (didStartMove) {
+                    // Rebuild to recompute bounds, but preserve view
+                    rebuildCanvas(false);
+                    // Re-show group highlight after rebuild
+                    if (selectedGroupId !== null) {
+                        showGroupHighlight(selectedGroupId);
+                    }
+                }
+                didStartMove = false;
+                return;
+            }
+
+            if (isDragSelecting) {
+                const svgElement = previewArea.querySelector('svg');
+
+                if (didDragSelect && selectionBoxEl && svgElement) {
+                    const boxRect = selectionBoxEl.getBoundingClientRect();
+
+                    if (!e.shiftKey) {
+                        selectedElements.forEach(selected => selected.classList.remove('selected'));
+                        selectedElements.clear();
+                    }
+
+                    const allSelectables = svgElement.querySelectorAll('.selectable');
+                    allSelectables.forEach(el => {
+                        const elRect = el.getBoundingClientRect();
+                        if (elRect.left < boxRect.right &&
+                            elRect.right > boxRect.left &&
+                            elRect.top < boxRect.bottom &&
+                            elRect.bottom > boxRect.top) {
+                            el.classList.add('selected');
+                            selectedElements.add(el);
+                        }
+                    });
+
+                    updateSelectionInfo();
+                } else if (!didDragSelect) {
+                    // It was a click
+                    const target = dragSelectStartTarget;
+
+                    if (target && target.classList.contains('selectable')) {
+                        selectElement(target, e.shiftKey);
+                    } else if (target && target.classList.contains('hit-area')) {
+                        const el = elementMap.get(target);
+                        if (el) selectElement(el, e.shiftKey);
+                    } else {
+                        // Clicked on background
+                        if (!e.shiftKey) {
+                            clearSelection();
+                        }
+                    }
+                }
+
+                if (selectionBoxEl) {
+                    selectionBoxEl.remove();
+                    selectionBoxEl = null;
+                }
+                isDragSelecting = false;
+                didDragSelect = false;
+                dragSelectStartTarget = null;
+            }
+        }
+
+        function handleDblClick(e) {
+            if (moveMode) return;
+
+            let targetElement = null;
+            if (e.target.classList.contains('selectable')) {
+                targetElement = e.target;
+            } else if (e.target.classList.contains('hit-area')) {
+                targetElement = elementMap.get(e.target);
+            }
+
+            if (targetElement) {
+                e.preventDefault();
+                e.stopPropagation();
+                selectConnectedChain(targetElement, e.shiftKey);
+            }
+        }
+
+        function handleKeyDown(e) {
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                if (selectedElements.size > 0) {
+                    e.preventDefault();
+                    deleteSelection();
+                }
+            }
+        }
+
+        // --- Event Listener Setup (attached once) ---
+
+        // Dropzone
         dropzone.addEventListener('click', function(e) {
             if (e.target !== fileInput) {
                 fileInput.click();
@@ -871,31 +2319,35 @@ ${svgContent}  </g>
             dropzone.classList.remove('dragover');
             const files = e.dataTransfer.files;
             if (files.length > 0) {
-                handleFile(files[0]);
+                handleFiles(files);
             }
         });
 
         fileInput.addEventListener('change', function(e) {
             const files = e.target.files;
             if (files.length > 0) {
-                handleFile(files[0]);
+                handleFiles(files);
             }
+            // Reset so the same file(s) can be re-imported
+            fileInput.value = '';
         });
 
+        // Controls
         downloadBtn.addEventListener('click', downloadSvg);
+        downloadDxfBtn.addEventListener('click', downloadDxf);
+        removeDuplicatesBtn.addEventListener('click', removeDuplicates);
 
         unitSelect.addEventListener('change', function() {
-            if (currentDxfText) {
-                processDxf(currentDxfText, currentFilename);
+            if (importedGroups.length > 0) {
+                rebuildCanvas(false);
             }
         });
 
-        // Color swatch click handlers
+        // Color toolbar
         colorSwatches.addEventListener('click', function(e) {
             const swatch = e.target.closest('.color-swatch');
             if (swatch) {
-                const color = swatch.dataset.color;
-                applyColorToSelection(color);
+                applyColorToSelection(swatch.dataset.color);
             }
         });
 
@@ -906,432 +2358,89 @@ ${svgContent}  </g>
         });
 
         clearSelectionBtn.addEventListener('click', clearSelection);
+        deleteSelectionBtn.addEventListener('click', deleteSelection);
 
-        function applyColorToSelection(color) {
-            if (selectedElements.size === 0) return;
+        // File list actions (event delegation)
+        document.getElementById('fileList').addEventListener('click', function(e) {
+            const btn = e.target.closest('[data-action]');
+            if (!btn) return;
 
-            selectedElements.forEach(el => {
-                el.setAttribute('stroke', color);
-            });
+            const action = btn.dataset.action;
+            const groupId = parseInt(btn.dataset.groupId);
 
-            updateSelectionInfo();
-            updateCurrentSvgString();
-        }
+            if (action === 'select') {
+                // Select all elements in this group
+                const svg = previewArea.querySelector('svg');
+                if (!svg) return;
+                const groupG = svg.querySelector(`g[data-group-id="${groupId}"]`);
+                if (!groupG) return;
 
-        function clearSelection() {
-            selectedElements.forEach(el => {
-                el.classList.remove('selected');
-            });
-            selectedElements.clear();
-            updateSelectionInfo();
-        }
-
-        function updateSelectionInfo() {
-            const count = selectedElements.size;
-            selectionInfo.textContent = count === 0 ? '0 selected' :
-                count === 1 ? '1 element selected' : `${count} elements selected`;
-        }
-
-        function updateCurrentSvgString() {
-            // Update the SVG string from the current DOM state
-            const svgElement = previewArea.querySelector('svg');
-            if (svgElement) {
-                // Clone the SVG and remove selection classes and hit areas for export
-                const clone = svgElement.cloneNode(true);
-                clone.querySelectorAll('.selectable').forEach(el => {
-                    el.classList.remove('selectable', 'selected');
-                });
-                clone.querySelectorAll('.hit-area').forEach(el => {
-                    el.remove();
-                });
-                currentSvgString = '<?xml version="1.0" encoding="UTF-8"?>\n' + clone.outerHTML;
-            }
-        }
-
-        // Drag selection state
-        let isDragging = false;
-        let didDrag = false;
-        let dragStartX = 0;
-        let dragStartY = 0;
-        let selectionBox = null;
-        let dragStartTarget = null;
-
-        // Connection tolerance for finding connected elements (in DXF units)
-        const CONNECTION_TOLERANCE = 0.5;
-
-        // Get endpoints of an element from data attributes
-        function getElementEndpoints(el) {
-            if (el.dataset.closed === 'true') {
-                return null; // Closed shapes have no endpoints
-            }
-
-            const startX = parseFloat(el.dataset.startX);
-            const startY = parseFloat(el.dataset.startY);
-            const endX = parseFloat(el.dataset.endX);
-            const endY = parseFloat(el.dataset.endY);
-
-            if (isNaN(startX) || isNaN(startY) || isNaN(endX) || isNaN(endY)) {
-                return null;
-            }
-
-            return {
-                start: { x: startX, y: startY },
-                end: { x: endX, y: endY }
-            };
-        }
-
-        // Check if two points are close enough to be considered connected
-        function pointsAreClose(p1, p2, tolerance) {
-            const dx = p1.x - p2.x;
-            const dy = p1.y - p2.y;
-            return Math.sqrt(dx * dx + dy * dy) <= tolerance;
-        }
-
-        // Find all elements connected to the given element
-        function findConnectedElements(startElement, allElements) {
-            const connected = new Set([startElement]);
-            const toProcess = [startElement];
-
-            while (toProcess.length > 0) {
-                const current = toProcess.pop();
-                const currentEndpoints = getElementEndpoints(current);
-
-                if (!currentEndpoints) continue;
-
-                // Check all other elements for connections
-                allElements.forEach(el => {
-                    if (connected.has(el)) return;
-
-                    const elEndpoints = getElementEndpoints(el);
-                    if (!elEndpoints) return;
-
-                    // Check if any endpoints match
-                    const isConnected =
-                        pointsAreClose(currentEndpoints.start, elEndpoints.start, CONNECTION_TOLERANCE) ||
-                        pointsAreClose(currentEndpoints.start, elEndpoints.end, CONNECTION_TOLERANCE) ||
-                        pointsAreClose(currentEndpoints.end, elEndpoints.start, CONNECTION_TOLERANCE) ||
-                        pointsAreClose(currentEndpoints.end, elEndpoints.end, CONNECTION_TOLERANCE);
-
-                    if (isConnected) {
-                        connected.add(el);
-                        toProcess.push(el);
-                    }
-                });
-            }
-
-            return connected;
-        }
-
-        function setupSvgInteraction() {
-            const svgElement = previewArea.querySelector('svg');
-            if (!svgElement) return;
-
-            // Store element-to-hitArea mapping
-            const elementMap = new Map();
-
-            // Make all geometry elements selectable
-            const geometryElements = svgElement.querySelectorAll('line, circle, ellipse, path, polyline, polygon, rect');
-
-            geometryElements.forEach((el, index) => {
-                el.classList.add('selectable');
-                el.dataset.elementId = index;
-
-                // Create invisible hit area for easier clicking
-                const hitArea = el.cloneNode(true);
-                hitArea.classList.remove('selectable');
-                hitArea.classList.add('hit-area');
-                hitArea.removeAttribute('data-element-id');
-                hitArea.dataset.forElement = index;
-
-                // Insert hit area before the element
-                el.parentNode.insertBefore(hitArea, el);
-
-                // Map hit area to element
-                elementMap.set(hitArea, el);
-            });
-
-            // Handle element selection
-            function selectElement(el, shiftKey) {
-                if (shiftKey) {
-                    // Multi-select with shift
-                    if (selectedElements.has(el)) {
-                        el.classList.remove('selected');
-                        selectedElements.delete(el);
-                    } else {
-                        el.classList.add('selected');
-                        selectedElements.add(el);
-                    }
-                } else {
-                    // Single select - clear others first
-                    selectedElements.forEach(selected => {
-                        selected.classList.remove('selected');
-                    });
-                    selectedElements.clear();
-
+                clearSelection();
+                groupG.querySelectorAll('.selectable').forEach(el => {
                     el.classList.add('selected');
                     selectedElements.add(el);
-                }
-                updateSelectionInfo();
-            }
-
-            // Handle double-click to select connected chain
-            function selectConnectedChain(el, shiftKey) {
-                const allSelectables = Array.from(svgElement.querySelectorAll('.selectable'));
-                const connected = findConnectedElements(el, allSelectables);
-
-                if (!shiftKey) {
-                    // Clear previous selection
-                    selectedElements.forEach(selected => {
-                        selected.classList.remove('selected');
-                    });
-                    selectedElements.clear();
-                }
-
-                // Select all connected elements
-                connected.forEach(connectedEl => {
-                    connectedEl.classList.add('selected');
-                    selectedElements.add(connectedEl);
                 });
-
                 updateSelectionInfo();
-            }
-
-            // Double-click handler for chain selection
-            previewArea.addEventListener('dblclick', function(e) {
-                let targetElement = null;
-
-                if (e.target.classList.contains('selectable')) {
-                    targetElement = e.target;
-                } else if (e.target.classList.contains('hit-area')) {
-                    targetElement = elementMap.get(e.target);
-                }
-
-                if (targetElement) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    selectConnectedChain(targetElement, e.shiftKey);
-                }
-            });
-
-            // Drag selection on preview area
-            previewArea.addEventListener('mousedown', function(e) {
-                if (e.button !== 0) return; // Only left mouse button
-
-                const rect = previewArea.getBoundingClientRect();
-                dragStartX = e.clientX - rect.left;
-                dragStartY = e.clientY - rect.top;
-                dragStartTarget = e.target;
-                isDragging = true;
-                didDrag = false;
-
-                // Create selection box (hidden until mouse moves)
-                selectionBox = document.createElement('div');
-                selectionBox.className = 'selection-box';
-                selectionBox.style.left = dragStartX + 'px';
-                selectionBox.style.top = dragStartY + 'px';
-                selectionBox.style.width = '0px';
-                selectionBox.style.height = '0px';
-                selectionBox.style.display = 'none';
-                previewArea.appendChild(selectionBox);
-
-                e.preventDefault();
-            });
-
-            document.addEventListener('mousemove', function(e) {
-                if (!isDragging || !selectionBox) return;
-
-                const rect = previewArea.getBoundingClientRect();
-                const currentX = e.clientX - rect.left;
-                const currentY = e.clientY - rect.top;
-
-                const width = Math.abs(currentX - dragStartX);
-                const height = Math.abs(currentY - dragStartY);
-
-                // Only show box and mark as drag if moved more than 5px
-                if (width > 5 || height > 5) {
-                    didDrag = true;
-                    selectionBox.style.display = 'block';
-
-                    const left = Math.min(dragStartX, currentX);
-                    const top = Math.min(dragStartY, currentY);
-
-                    selectionBox.style.left = left + 'px';
-                    selectionBox.style.top = top + 'px';
-                    selectionBox.style.width = width + 'px';
-                    selectionBox.style.height = height + 'px';
-                }
-            });
-
-            document.addEventListener('mouseup', function(e) {
-                if (!isDragging) return;
-
-                if (didDrag && selectionBox) {
-                    // It was a drag - do box selection
-                    const boxRect = selectionBox.getBoundingClientRect();
-
-                    // Find all elements that intersect with the selection box
-                    const allSelectables = svgElement.querySelectorAll('.selectable');
-
-                    if (!e.shiftKey) {
-                        // Clear previous selection unless shift is held
-                        selectedElements.forEach(selected => {
-                            selected.classList.remove('selected');
-                        });
-                        selectedElements.clear();
-                    }
-
-                    allSelectables.forEach(el => {
-                        const elRect = el.getBoundingClientRect();
-
-                        // Check if element intersects with selection box
-                        if (elRect.left < boxRect.right &&
-                            elRect.right > boxRect.left &&
-                            elRect.top < boxRect.bottom &&
-                            elRect.bottom > boxRect.top) {
-                            el.classList.add('selected');
-                            selectedElements.add(el);
-                        }
-                    });
-
-                    updateSelectionInfo();
-                } else {
-                    // It was a click - handle element selection or clear
-                    const target = dragStartTarget;
-
-                    if (target.classList.contains('selectable')) {
-                        selectElement(target, e.shiftKey);
-                    } else if (target.classList.contains('hit-area')) {
-                        const el = elementMap.get(target);
-                        if (el) selectElement(el, e.shiftKey);
-                    } else if (target === svgElement || target.tagName.toLowerCase() === 'g' || target === previewArea) {
-                        // Clicked on background - clear selection
-                        if (!e.shiftKey) {
-                            clearSelection();
-                        }
+            } else if (action === 'remove') {
+                importedGroups = importedGroups.filter(g => g.id !== groupId);
+                // Clean up color overrides for this group
+                for (const [key] of colorOverrides) {
+                    if (key.startsWith(`${groupId}-`)) {
+                        colorOverrides.delete(key);
                     }
                 }
-
-                // Cleanup
-                if (selectionBox) {
-                    selectionBox.remove();
-                    selectionBox = null;
-                }
-                isDragging = false;
-                didDrag = false;
-                dragStartTarget = null;
-            });
-
-            // Show color toolbar
-            colorToolbar.classList.add('visible');
-        }
-
-        function showStatus(message, type) {
-            status.textContent = message;
-            status.className = 'status ' + type;
-        }
-
-        function handleFile(file) {
-            if (!file.name.toLowerCase().endsWith('.dxf')) {
-                showStatus('Please select a DXF file.', 'error');
-                return;
+                rebuildCanvas(true);
             }
+        });
 
-            currentFilename = file.name.replace(/\.dxf$/i, '');
-            showStatus('Reading file...', 'info');
+        clearAllBtn.addEventListener('click', function() {
+            importedGroups = [];
+            groupIdCounter = 0;
+            colorOverrides.clear();
+            selectedGroupId = null;
+            rebuildCanvas(true);
+        });
 
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                currentDxfText = e.target.result;
-                processDxf(currentDxfText, currentFilename);
-            };
-            reader.onerror = function() {
-                showStatus('Error reading file.', 'error');
-            };
-            reader.readAsText(file);
-        }
+        // Move mode toggle
+        moveModeBtn.addEventListener('click', function() {
+            moveMode = !moveMode;
+            moveModeBtn.textContent = moveMode ? 'Move Mode: ON' : 'Move Mode: OFF';
+            moveModeBtn.classList.toggle('active', moveMode);
 
-        function processDxf(dxfText, filename) {
-            showStatus('Parsing DXF...', 'info');
-
-            try {
-                const parser = new DxfParser();
-                const parsed = parser.parse(dxfText);
-
-                if (!parsed.entities || parsed.entities.length === 0) {
-                    showStatus('No supported geometry found in DXF file.', 'error');
-                    return;
-                }
-
-                const generator = new SvgGenerator(parsed.entities);
-                const bounds = generator.bounds;
-                const width = bounds.maxX - bounds.minX;
-                const height = bounds.maxY - bounds.minY;
-
-                // Determine scale based on unit selection
-                let scale = 1;
-                let detectedUnit = 'mm';
-                const unitSetting = unitSelect.value;
-
-                if (unitSetting === 'auto') {
-                    const maxDim = Math.max(width, height);
-                    if (maxDim < 1) {
-                        scale = 25.4;
-                        detectedUnit = 'inches (converted to mm)';
-                    } else if (maxDim > 2000) {
-                        scale = 1;
-                        detectedUnit = 'mm';
-                    } else {
-                        scale = 1;
-                        detectedUnit = 'mm';
-                    }
-                } else if (unitSetting === 'in') {
-                    scale = 25.4;
-                    detectedUnit = 'inches (converted to mm)';
-                } else {
-                    scale = 1;
-                    detectedUnit = 'mm';
-                }
-
-                currentSvgString = generator.generateSvg(scale);
-
-                // Calculate final dimensions
-                const finalWidth = (width * scale).toFixed(2);
-                const finalHeight = (height * scale).toFixed(2);
-
-                // Update UI
-                previewArea.innerHTML = currentSvgString;
-                previewFilename.textContent = filename + '.dxf';
-                dimensions.textContent = `${finalWidth} × ${finalHeight} mm (detected: ${detectedUnit})`;
-                previewContainer.classList.add('visible');
-                downloadBtn.disabled = false;
-
-                // Clear any previous selection and setup interaction
-                selectedElements.clear();
-                updateSelectionInfo();
-                setupSvgInteraction();
-
-                showStatus(`Converted successfully! Found ${parsed.entities.length} entities.`, 'success');
-
-            } catch (error) {
-                console.error('Error processing DXF:', error);
-                showStatus('Error processing DXF: ' + error.message, 'error');
-                downloadBtn.disabled = true;
+            if (moveMode) {
+                clearSelection();
+                previewArea.classList.add('move-mode');
+            } else {
+                selectedGroupId = null;
+                clearGroupHighlight();
+                previewArea.classList.remove('move-mode');
+                previewArea.classList.remove('dragging-group');
             }
-        }
+        });
 
-        function downloadSvg() {
-            if (!currentSvgString) return;
+        // Reset view
+        resetViewBtn.addEventListener('click', function() {
+            if (!baseViewBox) return;
+            viewCenterX = baseViewBox.x + baseViewBox.w / 2;
+            viewCenterY = baseViewBox.y + baseViewBox.h / 2;
+            viewZoom = 1;
+            updateViewBox();
+        });
 
-            const blob = new Blob([currentSvgString], { type: 'image/svg+xml' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = currentFilename + '.svg';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        }
+        // Viewport: wheel zoom
+        previewArea.addEventListener('wheel', handleWheel, { passive: false });
+
+        // Interaction: mouse events on preview area
+        previewArea.addEventListener('mousedown', handleMouseDown);
+        previewArea.addEventListener('dblclick', handleDblClick);
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+        document.addEventListener('keydown', handleKeyDown);
+
+        // Prevent context menu on middle-click
+        previewArea.addEventListener('contextmenu', function(e) {
+            if (e.button === 1) e.preventDefault();
+        });
     </script>
 </body>
 </html>
