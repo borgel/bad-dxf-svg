@@ -527,6 +527,8 @@
             </div>
 
             <div class="mode-toolbar">
+                <button class="btn btn-mode" id="undoBtn" disabled title="Undo (Ctrl+Z)">Undo</button>
+                <button class="btn btn-mode" id="redoBtn" disabled title="Redo (Ctrl+Shift+Z)">Redo</button>
                 <button class="btn btn-mode" id="moveModeBtn">Move Mode: OFF</button>
                 <button class="btn btn-mode" id="resetViewBtn">Reset View</button>
                 <span class="toolbar-group">
@@ -1205,6 +1207,61 @@ ${groupsContent}  </g>
         let colorOverrides = new Map();
         let selectedElements = new Set();
 
+        // Undo/Redo
+        const undoStack = [];
+        const redoStack = [];
+        const MAX_UNDO = 50;
+
+        function saveUndoState() {
+            undoStack.push({
+                groups: JSON.parse(JSON.stringify(importedGroups)),
+                colorOverrides: new Map(colorOverrides),
+                groupIdCounter: groupIdCounter
+            });
+            if (undoStack.length > MAX_UNDO) undoStack.shift();
+            redoStack.length = 0;
+            updateUndoRedoButtons();
+        }
+
+        function restoreState(state) {
+            importedGroups = state.groups;
+            colorOverrides = new Map(state.colorOverrides);
+            groupIdCounter = state.groupIdCounter;
+            selectedElements.clear();
+            selectedGroupId = null;
+            clearGroupHighlight();
+            rebuildCanvas(true);
+        }
+
+        function undo() {
+            if (undoStack.length === 0) return;
+            redoStack.push({
+                groups: JSON.parse(JSON.stringify(importedGroups)),
+                colorOverrides: new Map(colorOverrides),
+                groupIdCounter: groupIdCounter
+            });
+            restoreState(undoStack.pop());
+            updateUndoRedoButtons();
+        }
+
+        function redo() {
+            if (redoStack.length === 0) return;
+            undoStack.push({
+                groups: JSON.parse(JSON.stringify(importedGroups)),
+                colorOverrides: new Map(colorOverrides),
+                groupIdCounter: groupIdCounter
+            });
+            restoreState(redoStack.pop());
+            updateUndoRedoButtons();
+        }
+
+        function updateUndoRedoButtons() {
+            const undoBtn = document.getElementById('undoBtn');
+            const redoBtn = document.getElementById('redoBtn');
+            if (undoBtn) undoBtn.disabled = undoStack.length === 0;
+            if (redoBtn) redoBtn.disabled = redoStack.length === 0;
+        }
+
         // Viewport
         let viewCenterX = 0, viewCenterY = 0;
         let viewZoom = 1;
@@ -1590,6 +1647,7 @@ ${groupsContent}  </g>
 
         function applyColorToSelection(color) {
             if (selectedElements.size === 0) return;
+            saveUndoState();
 
             selectedElements.forEach(el => {
                 el.setAttribute('stroke', color);
@@ -1724,6 +1782,7 @@ ${groupsContent}  </g>
                 const parser = new DxfParser();
                 const generator = new SvgGenerator();
                 let addedCount = 0;
+                let undoSaved = false;
 
                 for (const { name, content } of results) {
                     try {
@@ -1741,6 +1800,10 @@ ${groupsContent}  </g>
                             offsetX = bounds.maxX + 10 - newBounds.minX;
                         }
 
+                        if (!undoSaved) {
+                            saveUndoState();
+                            undoSaved = true;
+                        }
                         importedGroups.push({
                             id: groupIdCounter++,
                             filename: filename,
@@ -1764,6 +1827,7 @@ ${groupsContent}  </g>
 
         function deleteSelection() {
             if (selectedElements.size === 0) return;
+            saveUndoState();
 
             // Collect which entities to delete: map of groupId -> Set of entityIndex
             const toDelete = new Map();
@@ -1867,6 +1931,8 @@ ${groupsContent}  </g>
                 showStatus(`No duplicates found at ±${duplicateTolerance} tolerance (checked ${totalBefore} entities across ${importedGroups.length} file(s)).`, 'info');
                 return;
             }
+
+            saveUndoState();
 
             // Count duplicates by type and by file for feedback
             const removedByType = {};
@@ -2163,6 +2229,7 @@ ${groupsContent}  </g>
                 const dy = e.clientY - moveLastScreenY;
 
                 if (!didStartMove && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+                    saveUndoState();
                     didStartMove = true;
                     previewArea.classList.add('dragging-group');
                 }
@@ -2326,6 +2393,18 @@ ${groupsContent}  </g>
         }
 
         function handleKeyDown(e) {
+            if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+                if (e.key === 'z' && !e.shiftKey) {
+                    e.preventDefault();
+                    undo();
+                    return;
+                }
+                if ((e.key === 'z' && e.shiftKey) || e.key === 'y') {
+                    e.preventDefault();
+                    redo();
+                    return;
+                }
+            }
             if (e.key === 'Delete' || e.key === 'Backspace') {
                 if (selectedElements.size > 0) {
                     e.preventDefault();
@@ -2388,6 +2467,10 @@ ${groupsContent}  </g>
             }
         });
 
+        // Undo/Redo buttons
+        document.getElementById('undoBtn').addEventListener('click', undo);
+        document.getElementById('redoBtn').addEventListener('click', redo);
+
         // Color toolbar
         colorSwatches.addEventListener('click', function(e) {
             const swatch = e.target.closest('.color-swatch');
@@ -2427,6 +2510,7 @@ ${groupsContent}  </g>
                 });
                 updateSelectionInfo();
             } else if (action === 'remove') {
+                saveUndoState();
                 importedGroups = importedGroups.filter(g => g.id !== groupId);
                 // Clean up color overrides for this group
                 for (const [key] of colorOverrides) {
@@ -2439,6 +2523,8 @@ ${groupsContent}  </g>
         });
 
         clearAllBtn.addEventListener('click', function() {
+            if (importedGroups.length === 0) return;
+            saveUndoState();
             importedGroups = [];
             groupIdCounter = 0;
             colorOverrides.clear();
