@@ -265,7 +265,7 @@
         }
 
         .preview-area svg {
-            max-width: 100%;
+            width: 100%;
             max-height: 500px;
             background: var(--svg-bg);
             box-shadow: 0 2px 8px var(--svg-shadow);
@@ -1076,11 +1076,13 @@
                 const vbH = height + padding * 2;
 
                 const xmlDecl = forExport ? '<?xml version="1.0" encoding="UTF-8"?>\n' : '';
+                const sizeAttrs = forExport
+                    ? `width="${(width * scale).toFixed(2)}mm" height="${(height * scale).toFixed(2)}mm"`
+                    : '';
 
                 return `${xmlDecl}<svg xmlns="http://www.w3.org/2000/svg"
      viewBox="${vbX} ${vbY} ${vbW} ${vbH}"
-     width="${(width * scale).toFixed(2)}mm"
-     height="${(height * scale).toFixed(2)}mm">
+     ${sizeAttrs}>
   <g transform="scale(1, -1)" stroke="${forExport ? '#000000' : 'currentColor'}" stroke-width="0.5" fill="none">
 ${groupsContent}  </g>
 </svg>`;
