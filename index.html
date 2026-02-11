@@ -145,21 +145,13 @@
             display: none;
         }
 
-        .controls {
-            display: flex;
-            gap: 16px;
-            align-items: center;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-        }
-
-        .control-group {
-            display: flex;
+        .preview-header-units {
+            display: inline-flex;
             align-items: center;
             gap: 8px;
         }
 
-        .control-group label {
+        .preview-header-units label {
             color: var(--text-secondary);
             font-size: 0.9rem;
         }
@@ -310,7 +302,7 @@
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 8px;
-            margin-bottom: 16px;
+            margin-top: 8px;
             flex-wrap: wrap;
         }
 
@@ -408,11 +400,38 @@
             z-index: 1000;
         }
 
-        .select-hint {
+        .toolbar-help-group {
+            position: relative;
+        }
+
+        .btn-help-tooltip {
+            font-weight: bold;
+            min-width: 28px;
+            padding: 6px 8px;
+            cursor: pointer;
+        }
+
+        .help-tooltip-text {
+            display: none;
+            position: absolute;
+            right: 0;
+            top: 100%;
+            margin-top: 6px;
+            width: 340px;
+            padding: 10px 14px;
+            background: var(--surface);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
             font-size: 0.85rem;
-            color: var(--text-hint);
-            margin-bottom: 12px;
-            text-align: center;
+            line-height: 1.5;
+            z-index: 100;
+            box-shadow: 0 4px 12px var(--svg-shadow);
+        }
+
+        .toolbar-help-group:hover .help-tooltip-text,
+        .toolbar-help-group:focus-within .help-tooltip-text {
+            display: block;
         }
 
         .export-bar {
@@ -525,7 +544,7 @@
             flex-wrap: wrap;
             gap: 8px;
             align-items: center;
-            margin-bottom: 12px;
+            margin-bottom: 6px;
         }
 
         .toolbar-group {
@@ -613,22 +632,19 @@
             <input type="file" id="fileInput" accept=".dxf" multiple>
         </div>
 
-        <div class="controls">
-            <div class="control-group">
-                <label for="unitSelect">Input units:</label>
-                <select id="unitSelect">
-                    <option value="auto">Auto-detect</option>
-                    <option value="mm">Millimeters (mm)</option>
-                    <option value="in">Inches</option>
-                </select>
-            </div>
-        </div>
-
         <div class="status" id="status"></div>
 
         <div class="preview-container" id="previewContainer">
             <div class="preview-header">
                 <span class="preview-title">Preview</span>
+                <span class="preview-header-units">
+                    <label for="unitSelect">Input units:</label>
+                    <select id="unitSelect">
+                        <option value="auto">Auto-detect</option>
+                        <option value="mm">Millimeters (mm)</option>
+                        <option value="in">Inches</option>
+                    </select>
+                </span>
                 <span class="dimensions" id="dimensions"></span>
             </div>
 
@@ -678,7 +694,13 @@
                     <input type="number" id="autoPlaceMarginInput" class="bed-control bed-dim-input" style="display:none; width:55px;" value="2" min="0" step="any">
                     <button class="btn btn-mode bed-control" id="autoPlaceBtn" style="display:none;">Auto Place</button>
                 </span>
+                <span class="toolbar-group toolbar-help-group">
+                    <button class="btn btn-mode btn-help-tooltip" id="helpTooltipBtn" type="button">?</button>
+                    <span class="help-tooltip-text">Click to select, double-click for chain, drag to box-select, Shift to add. Scroll to zoom, Ctrl+drag or middle-click to pan. Toggle Move Mode to drag groups. Delete key to remove selected.</span>
+                </span>
             </div>
+
+            <div class="preview-area" id="previewArea"></div>
 
             <div class="color-toolbar" id="colorToolbar">
                 <span class="color-toolbar-label">Set color:</span>
@@ -697,9 +719,6 @@
                 <button class="btn btn-danger" id="deleteSelectionBtn">Delete Selected</button>
                 <button class="btn btn-clear-selection" id="clearSelectionBtn">Clear Selection</button>
             </div>
-
-            <p class="select-hint">Click to select, double-click for chain, drag to box-select, Shift to add. Scroll to zoom, Ctrl+drag or middle-click to pan. Toggle Move Mode to drag groups. Delete key to remove selected.</p>
-            <div class="preview-area" id="previewArea"></div>
             <div class="export-bar">
                 <button class="btn btn-primary" id="downloadBtn" disabled>Download SVG</button>
                 <button class="btn btn-primary" id="downloadDxfBtn" disabled>Download DXF</button>
