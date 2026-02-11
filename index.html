@@ -389,6 +389,7 @@
             fill: none;
             pointer-events: stroke;
             cursor: pointer;
+            vector-effect: non-scaling-stroke;
         }
 
         /* Selection box (rubber band) */
@@ -2945,7 +2946,7 @@ ${groupsContent}  </g>
                 const width = Math.abs(currentX - dragSelectStartX);
                 const height = Math.abs(currentY - dragSelectStartY);
 
-                if (width > 5 || height > 5) {
+                if (width > 5 && height > 5) {
                     didDragSelect = true;
                     selectionBoxEl.style.display = 'block';
 
