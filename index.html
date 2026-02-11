@@ -88,17 +88,27 @@
             padding: 0;
         }
 
+        html, body {
+            height: 100%;
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
             background: var(--bg);
             color: var(--text);
-            min-height: 100vh;
             padding: 20px;
+            display: flex;
+            flex-direction: column;
         }
 
         .container {
             max-width: 900px;
             margin: 0 auto;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-height: 0;
         }
 
         h1 {
@@ -222,10 +232,13 @@
             border-radius: 12px;
             padding: 20px;
             display: none;
+            flex-direction: column;
+            flex: 1;
+            min-height: 0;
         }
 
         .preview-container.visible {
-            display: block;
+            display: flex;
         }
 
         .preview-header {
@@ -258,7 +271,8 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            min-height: 300px;
+            min-height: 200px;
+            flex: 1;
             overflow: hidden;
             position: relative;
             user-select: none;
@@ -266,7 +280,7 @@
 
         .preview-area svg {
             width: 100%;
-            max-height: 500px;
+            height: 100%;
             background: var(--svg-bg);
             box-shadow: 0 2px 8px var(--svg-shadow);
             color: var(--svg-stroke);
