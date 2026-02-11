@@ -5,6 +5,83 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DXF to SVG Converter for Laser Cutting</title>
     <style>
+        :root {
+            --bg: #f5f5f5;
+            --surface: #fff;
+            --surface-alt: #fafafa;
+            --surface-inset: #f0f0f0;
+            --surface-hover: #e0e0e0;
+            --border: #ddd;
+            --border-light: #eee;
+            --border-mid: #ccc;
+            --border-input: #d0d0d0;
+            --text: #333;
+            --text-secondary: #555;
+            --text-muted: #666;
+            --text-hint: #888;
+            --text-faint: #999;
+            --accent: #007bff;
+            --accent-hover: #0056b3;
+            --accent-bg: #f0f7ff;
+            --danger: #dc3545;
+            --danger-hover: #c82333;
+            --status-error-bg: #fee;
+            --status-error-text: #c00;
+            --status-error-border: #fcc;
+            --status-success-bg: #efe;
+            --status-success-text: #060;
+            --status-success-border: #cfc;
+            --status-info-bg: #eef;
+            --status-info-text: #006;
+            --status-info-border: #ccf;
+            --file-item-bg: #fff;
+            --file-item-border: #e8e8e8;
+            --svg-bg: #fff;
+            --svg-shadow: rgba(0,0,0,0.1);
+            --svg-stroke: #000000;
+            --btn-disabled: #ccc;
+            color-scheme: light dark;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #1a1a1a;
+                --surface: #2a2a2a;
+                --surface-alt: #252525;
+                --surface-inset: #333;
+                --surface-hover: #444;
+                --border: #444;
+                --border-light: #383838;
+                --border-mid: #555;
+                --border-input: #555;
+                --text: #e0e0e0;
+                --text-secondary: #bbb;
+                --text-muted: #aaa;
+                --text-hint: #888;
+                --text-faint: #777;
+                --accent: #4da3ff;
+                --accent-hover: #7abbff;
+                --accent-bg: #1a2a3a;
+                --danger: #e55565;
+                --danger-hover: #ff6b7b;
+                --status-error-bg: #3a1a1a;
+                --status-error-text: #f88;
+                --status-error-border: #5a2a2a;
+                --status-success-bg: #1a3a1a;
+                --status-success-text: #8f8;
+                --status-success-border: #2a5a2a;
+                --status-info-bg: #1a1a3a;
+                --status-info-text: #88f;
+                --status-info-border: #2a2a5a;
+                --file-item-bg: #333;
+                --file-item-border: #444;
+                --svg-bg: #1e1e1e;
+                --svg-shadow: rgba(0,0,0,0.4);
+                --svg-stroke: #d0d0d0;
+                --btn-disabled: #555;
+            }
+        }
+
         * {
             box-sizing: border-box;
             margin: 0;
@@ -13,7 +90,8 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: #f5f5f5;
+            background: var(--bg);
+            color: var(--text);
             min-height: 100vh;
             padding: 20px;
         }
@@ -25,24 +103,24 @@
 
         h1 {
             text-align: center;
-            color: #333;
+            color: var(--text);
             margin-bottom: 8px;
             font-size: 1.8rem;
         }
 
         .subtitle {
             text-align: center;
-            color: #666;
+            color: var(--text-muted);
             margin-bottom: 24px;
             font-size: 0.95rem;
         }
 
         .dropzone {
-            border: 3px dashed #ccc;
+            border: 3px dashed var(--border-mid);
             border-radius: 12px;
             padding: 48px 24px;
             text-align: center;
-            background: #fff;
+            background: var(--surface);
             cursor: pointer;
             transition: all 0.2s ease;
             margin-bottom: 20px;
@@ -50,17 +128,17 @@
 
         .dropzone:hover,
         .dropzone.dragover {
-            border-color: #007bff;
-            background: #f0f7ff;
+            border-color: var(--accent);
+            background: var(--accent-bg);
         }
 
         .dropzone-text {
-            color: #666;
+            color: var(--text-muted);
             font-size: 1.1rem;
         }
 
         .dropzone-text strong {
-            color: #007bff;
+            color: var(--accent);
         }
 
         .dropzone input[type="file"] {
@@ -82,16 +160,17 @@
         }
 
         .control-group label {
-            color: #555;
+            color: var(--text-secondary);
             font-size: 0.9rem;
         }
 
         select {
             padding: 8px 12px;
-            border: 1px solid #ccc;
+            border: 1px solid var(--border-mid);
             border-radius: 6px;
             font-size: 0.9rem;
-            background: #fff;
+            background: var(--surface);
+            color: var(--text);
         }
 
         .btn {
@@ -104,16 +183,16 @@
         }
 
         .btn-primary {
-            background: #007bff;
+            background: var(--accent);
             color: #fff;
         }
 
         .btn-primary:hover:not(:disabled) {
-            background: #0056b3;
+            background: var(--accent-hover);
         }
 
         .btn-primary:disabled {
-            background: #ccc;
+            background: var(--btn-disabled);
             cursor: not-allowed;
         }
 
@@ -126,28 +205,28 @@
 
         .status.error {
             display: block;
-            background: #fee;
-            color: #c00;
-            border: 1px solid #fcc;
+            background: var(--status-error-bg);
+            color: var(--status-error-text);
+            border: 1px solid var(--status-error-border);
         }
 
         .status.success {
             display: block;
-            background: #efe;
-            color: #060;
-            border: 1px solid #cfc;
+            background: var(--status-success-bg);
+            color: var(--status-success-text);
+            border: 1px solid var(--status-success-border);
         }
 
         .status.info {
             display: block;
-            background: #eef;
-            color: #006;
-            border: 1px solid #ccf;
+            background: var(--status-info-bg);
+            color: var(--status-info-text);
+            border: 1px solid var(--status-info-border);
         }
 
         .preview-container {
-            background: #fff;
-            border: 1px solid #ddd;
+            background: var(--surface);
+            border: 1px solid var(--border);
             border-radius: 12px;
             padding: 20px;
             display: none;
@@ -168,20 +247,20 @@
 
         .preview-title {
             font-size: 1rem;
-            color: #333;
+            color: var(--text);
         }
 
         .dimensions {
             font-size: 0.9rem;
-            color: #666;
-            background: #f5f5f5;
+            color: var(--text-muted);
+            background: var(--surface-alt);
             padding: 6px 12px;
             border-radius: 4px;
         }
 
         .preview-area {
-            background: #fafafa;
-            border: 1px solid #eee;
+            background: var(--surface-alt);
+            border: 1px solid var(--border-light);
             border-radius: 8px;
             padding: 20px;
             display: flex;
@@ -196,13 +275,14 @@
         .preview-area svg {
             max-width: 100%;
             max-height: 500px;
-            background: #fff;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            background: var(--svg-bg);
+            box-shadow: 0 2px 8px var(--svg-shadow);
+            color: var(--svg-stroke);
         }
 
         .filename {
             font-family: monospace;
-            background: #f0f0f0;
+            background: var(--surface-inset);
             padding: 2px 6px;
             border-radius: 3px;
         }
@@ -210,15 +290,15 @@
         .supported-entities {
             margin-top: 24px;
             padding: 16px;
-            background: #fff;
-            border: 1px solid #ddd;
+            background: var(--surface);
+            border: 1px solid var(--border);
             border-radius: 8px;
             font-size: 0.85rem;
-            color: #666;
+            color: var(--text-muted);
         }
 
         .supported-entities strong {
-            color: #333;
+            color: var(--text);
         }
 
         /* Color selection toolbar */
@@ -227,8 +307,8 @@
             gap: 8px;
             align-items: center;
             padding: 12px 16px;
-            background: #fff;
-            border: 1px solid #ddd;
+            background: var(--surface);
+            border: 1px solid var(--border);
             border-radius: 8px;
             margin-bottom: 16px;
             flex-wrap: wrap;
@@ -240,7 +320,7 @@
 
         .color-toolbar-label {
             font-size: 0.9rem;
-            color: #555;
+            color: var(--text-secondary);
             margin-right: 8px;
         }
 
@@ -254,18 +334,18 @@
             width: 28px;
             height: 28px;
             border-radius: 4px;
-            border: 2px solid #ddd;
+            border: 2px solid var(--border);
             cursor: pointer;
             transition: all 0.15s ease;
         }
 
         .color-swatch:hover {
             transform: scale(1.1);
-            border-color: #999;
+            border-color: var(--text-faint);
         }
 
         .color-swatch.active {
-            border-color: #007bff;
+            border-color: var(--accent);
             box-shadow: 0 0 0 2px rgba(0,123,255,0.3);
         }
 
@@ -273,7 +353,7 @@
             width: 28px;
             height: 28px;
             padding: 0;
-            border: 2px solid #ddd;
+            border: 2px solid var(--border);
             border-radius: 4px;
             cursor: pointer;
         }
@@ -281,19 +361,19 @@
         .selection-info {
             margin-left: auto;
             font-size: 0.85rem;
-            color: #666;
+            color: var(--text-muted);
         }
 
         .btn-clear-selection {
             padding: 6px 12px;
             font-size: 0.85rem;
-            background: #f0f0f0;
-            color: #333;
-            border: 1px solid #ccc;
+            background: var(--surface-inset);
+            color: var(--text);
+            border: 1px solid var(--border-mid);
         }
 
         .btn-clear-selection:hover {
-            background: #e0e0e0;
+            background: var(--surface-hover);
         }
 
         /* SVG element selection styles */
@@ -322,7 +402,7 @@
         /* Selection box (rubber band) */
         .selection-box {
             position: absolute;
-            border: 2px dashed #007bff;
+            border: 2px dashed var(--accent);
             background: rgba(0, 123, 255, 0.1);
             pointer-events: none;
             z-index: 1000;
@@ -330,7 +410,7 @@
 
         .select-hint {
             font-size: 0.85rem;
-            color: #888;
+            color: var(--text-hint);
             margin-bottom: 12px;
             text-align: center;
         }
@@ -346,13 +426,15 @@
         .bed-dim-input {
             width: 70px;
             padding: 6px 8px;
-            border: 1px solid #d0d0d0;
+            border: 1px solid var(--border-input);
             border-radius: 4px;
             font-size: 13px;
+            background: var(--surface);
+            color: var(--text);
         }
         .bed-dim-sep {
             font-size: 13px;
-            color: #555;
+            color: var(--text-secondary);
         }
         .tray-rect {
             stroke: #999;
@@ -364,8 +446,8 @@
 
         /* File list */
         .file-list {
-            background: #f8f8f8;
-            border: 1px solid #e0e0e0;
+            background: var(--surface-alt);
+            border: 1px solid var(--border);
             border-radius: 8px;
             padding: 12px 16px;
             margin-bottom: 12px;
@@ -377,7 +459,7 @@
             align-items: center;
             margin-bottom: 8px;
             font-size: 0.9rem;
-            color: #555;
+            color: var(--text-secondary);
             font-weight: 600;
         }
 
@@ -394,8 +476,8 @@
             align-items: center;
             gap: 8px;
             padding: 4px 8px;
-            background: #fff;
-            border: 1px solid #e8e8e8;
+            background: var(--file-item-bg);
+            border: 1px solid var(--file-item-border);
             border-radius: 4px;
             font-size: 0.85rem;
         }
@@ -407,14 +489,15 @@
         .btn-file-action {
             padding: 3px 8px;
             font-size: 0.8rem;
-            background: #f0f0f0;
-            border: 1px solid #ccc;
+            background: var(--surface-inset);
+            border: 1px solid var(--border-mid);
             border-radius: 3px;
             cursor: pointer;
+            color: var(--text);
         }
 
         .btn-file-action:hover {
-            background: #e0e0e0;
+            background: var(--surface-hover);
         }
 
         .btn-remove-file {
@@ -422,13 +505,13 @@
             font-size: 0.85rem;
             background: none;
             border: none;
-            color: #999;
+            color: var(--text-faint);
             cursor: pointer;
             font-weight: bold;
         }
 
         .btn-remove-file:hover {
-            color: #c00;
+            color: var(--danger);
         }
 
         /* Mode toolbar */
@@ -444,46 +527,46 @@
             display: inline-flex;
             gap: 4px;
             align-items: center;
-            border: 1px solid #ccc;
+            border: 1px solid var(--border-mid);
             border-radius: 8px;
             padding: 3px 4px;
-            background: #fafafa;
+            background: var(--surface-alt);
         }
 
         .btn-mode {
             padding: 6px 14px;
             font-size: 0.85rem;
-            background: #f0f0f0;
-            color: #333;
-            border: 1px solid #ccc;
+            background: var(--surface-inset);
+            color: var(--text);
+            border: 1px solid var(--border-mid);
             border-radius: 6px;
             cursor: pointer;
             transition: all 0.15s ease;
         }
 
         .btn-mode:hover {
-            background: #e0e0e0;
+            background: var(--surface-hover);
         }
 
         .btn-mode.active {
-            background: #007bff;
+            background: var(--accent);
             color: #fff;
-            border-color: #007bff;
+            border-color: var(--accent);
         }
 
         /* Delete button */
         .btn-danger {
             padding: 6px 12px;
             font-size: 0.85rem;
-            background: #dc3545;
+            background: var(--danger);
             color: #fff;
-            border: 1px solid #dc3545;
+            border: 1px solid var(--danger);
             border-radius: 6px;
             cursor: pointer;
         }
 
         .btn-danger:hover {
-            background: #c82333;
+            background: var(--danger-hover);
         }
 
         /* Move mode cursors */
@@ -887,7 +970,7 @@
      viewBox="${vbX} ${vbY} ${vbW} ${vbH}"
      width="${(width * scale).toFixed(2)}mm"
      height="${(height * scale).toFixed(2)}mm">
-  <g transform="scale(1, -1)" stroke="#000000" stroke-width="0.5" fill="none">
+  <g transform="scale(1, -1)" stroke="${forExport ? '#000000' : 'currentColor'}" stroke-width="0.5" fill="none">
 ${groupsContent}  </g>
 </svg>`;
             }
