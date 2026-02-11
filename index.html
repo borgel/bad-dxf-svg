@@ -559,6 +559,7 @@
                 </span>
                 <span class="toolbar-group">
                     <button class="btn btn-mode" id="moveModeBtn">Move Mode: OFF</button>
+                    <button class="btn btn-mode active" id="snapToggleBtn">Snap: ON</button>
                     <button class="btn btn-mode" id="resetViewBtn">Reset View</button>
                 </span>
                 <span class="toolbar-group">
@@ -1336,6 +1337,7 @@ ${groupsContent}  </g>
         let moveLastScreenX = 0, moveLastScreenY = 0;
 
         // Snap
+        let snapEnabled = true;
         let otherGroupEndpoints = [];
         let dragGroupEndpoints = [];
         const SNAP_TOLERANCE = 5.0;
@@ -2346,13 +2348,15 @@ ${groupsContent}  </g>
                     group.offsetY += dxfDeltaY;
 
                     // Check for snap
-                    const snap = findSnapPoint(group.offsetX, group.offsetY);
-                    if (snap.snapDelta) {
-                        group.offsetX += snap.snapDelta.x;
-                        group.offsetY += snap.snapDelta.y;
-                        showSnapIndicator(snap.snapPoint);
-                    } else {
-                        clearSnapIndicators();
+                    if (snapEnabled) {
+                        const snap = findSnapPoint(group.offsetX, group.offsetY);
+                        if (snap.snapDelta) {
+                            group.offsetX += snap.snapDelta.x;
+                            group.offsetY += snap.snapDelta.y;
+                            showSnapIndicator(snap.snapPoint);
+                        } else {
+                            clearSnapIndicators();
+                        }
                     }
 
                     // Update the group's transform directly (no full rebuild)
@@ -2674,6 +2678,12 @@ ${groupsContent}  </g>
         });
 
         // Move mode toggle
+        document.getElementById('snapToggleBtn').addEventListener('click', function() {
+            snapEnabled = !snapEnabled;
+            this.textContent = snapEnabled ? 'Snap: ON' : 'Snap: OFF';
+            this.classList.toggle('active', snapEnabled);
+        });
+
         moveModeBtn.addEventListener('click', function() {
             moveMode = !moveMode;
             moveModeBtn.textContent = moveMode ? 'Move Mode: ON' : 'Move Mode: OFF';
