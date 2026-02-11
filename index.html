@@ -554,8 +554,14 @@
             align-items: center;
             border: 1px solid var(--border-mid);
             border-radius: 8px;
-            padding: 3px 4px;
+            padding: 4px 6px;
             background: var(--surface-alt);
+        }
+
+        .toolbar-group-borderless {
+            border: none;
+            background: none;
+            padding: 0;
         }
 
         .btn-mode {
@@ -669,17 +675,6 @@
                     <button class="btn btn-mode" id="resetViewBtn">Reset View</button>
                 </span>
                 <span class="toolbar-group">
-                    <button class="btn btn-mode" id="removeDuplicatesBtn">Find Overlaps</button>
-                    <button class="btn btn-mode" id="removeOverlapsBtn" style="display:none">Remove Overlaps</button>
-                    <select id="dupToleranceSelect" title="Duplicate detection tolerance">
-                        <option value="0.01">±0.01 (tight)</option>
-                        <option value="0.1" selected>±0.1 (default)</option>
-                        <option value="0.5">±0.5</option>
-                        <option value="1">±1.0</option>
-                        <option value="5">±5.0 (loose)</option>
-                    </select>
-                </span>
-                <span class="toolbar-group">
                     <button class="btn btn-mode" id="bedToggleBtn">Bed: OFF</button>
                     <select id="bedPresetSelect" class="bed-control" style="display:none;">
                         <option value="glowforge">Glowforge (19.5″×11″)</option>
@@ -692,9 +687,22 @@
                     <input type="number" id="autoPlaceMarginInput" class="bed-control bed-dim-input" style="display:none; width:55px;" value="2" min="0" step="any">
                     <button class="btn btn-mode bed-control" id="autoPlaceBtn" style="display:none;">Auto Place</button>
                 </span>
-                <span class="toolbar-group toolbar-help-group">
+                <span class="toolbar-group toolbar-group-borderless toolbar-help-group">
                     <button class="btn btn-mode btn-help-tooltip" id="helpTooltipBtn" type="button">?</button>
                     <span class="help-tooltip-text">Click to select, double-click for chain, drag to box-select, Shift to add. Scroll to zoom, Ctrl+drag or middle-click to pan. Toggle Move Mode to drag groups. Delete key to remove selected.</span>
+                </span>
+            </div>
+            <div class="mode-toolbar">
+                <span class="toolbar-group">
+                    <button class="btn btn-mode" id="removeDuplicatesBtn">Find Overlaps</button>
+                    <button class="btn btn-mode" id="removeOverlapsBtn" style="display:none">Remove Overlaps</button>
+                    <select id="dupToleranceSelect" title="Duplicate detection tolerance">
+                        <option value="0.01">±0.01 (tight)</option>
+                        <option value="0.1" selected>±0.1 (default)</option>
+                        <option value="0.5">±0.5</option>
+                        <option value="1">±1.0</option>
+                        <option value="5">±5.0 (loose)</option>
+                    </select>
                 </span>
             </div>
 
