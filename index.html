@@ -694,11 +694,11 @@
                         <option value="glowforge">Glowforge (19.5″×11″)</option>
                         <option value="custom">Custom</option>
                     </select>
-                    <input type="number" id="bedWidthInput" class="bed-control bed-dim-input" style="display:none;" step="any">
+                    <input type="number" id="bedWidthInput" class="bed-control bed-dim-input" style="display:none;" step="any" autocomplete="off">
                     <span class="bed-control bed-dim-sep" id="bedDimSep" style="display:none;">×</span>
-                    <input type="number" id="bedHeightInput" class="bed-control bed-dim-input" style="display:none;" step="any">
+                    <input type="number" id="bedHeightInput" class="bed-control bed-dim-input" style="display:none;" step="any" autocomplete="off">
                     <label class="bed-control" style="display:none; font-size:0.85rem; color:var(--text-secondary);">Margin:</label>
-                    <input type="number" id="autoPlaceMarginInput" class="bed-control bed-dim-input" style="display:none; width:55px;" value="2" min="0" step="any">
+                    <input type="number" id="autoPlaceMarginInput" class="bed-control bed-dim-input" style="display:none; width:55px;" value="2" min="0" step="any" autocomplete="off">
                     <button class="btn btn-mode bed-control" id="autoPlaceBtn" style="display:none;">Auto Place</button>
                 </span>
                 <span class="toolbar-group toolbar-group-borderless toolbar-help-group">
@@ -1457,6 +1457,7 @@ ${groupsContent}  </g>
         let bedEnabled = false;
         let bedWidth = 495.3;   // mm default (Glowforge, landscape)
         let bedHeight = 279.4;
+        let autoPlaceMargin = 2;
 
         // Move mode
         let moveMode = false;
@@ -1995,7 +1996,7 @@ ${groupsContent}  </g>
 
             saveUndoState();
 
-            const margin = parseFloat(autoPlaceMarginInput.value) || 0;
+            const margin = autoPlaceMargin;
             const angles = [0, 45, 90, 135];
 
             // Build rects with candidate sizes for each group
@@ -3203,6 +3204,10 @@ ${groupsContent}  </g>
             if (importedGroups.length > 0) {
                 rebuildCanvas(false);
             }
+        });
+
+        autoPlaceMarginInput.addEventListener('change', function() {
+            autoPlaceMargin = parseFloat(autoPlaceMarginInput.value) || 0;
         });
 
         autoPlaceBtn.addEventListener('click', autoPlace);
