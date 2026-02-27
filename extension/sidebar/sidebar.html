@@ -57,16 +57,16 @@
       </div>
       <div class="mode-toolbar">
         <span class="toolbar-group">
-          <button class="btn btn-mode" id="bedToggleBtn">Bed: OFF</button>
-          <select id="bedPresetSelect" class="bed-control" style="display:none;">
+          <button class="btn btn-mode active" id="bedToggleBtn">Bed: ON</button>
+          <select id="bedPresetSelect" class="bed-control">
             <option value="glowforge">GF (19.5″×11″)</option>
             <option value="custom">Custom</option>
           </select>
-          <input type="number" id="bedWidthInput" class="bed-control bed-dim-input" style="display:none;" step="any" autocomplete="off">
-          <span class="bed-control bed-dim-sep" id="bedDimSep" style="display:none;">×</span>
-          <input type="number" id="bedHeightInput" class="bed-control bed-dim-input" style="display:none;" step="any" autocomplete="off">
+          <input type="number" id="bedWidthInput" class="bed-control bed-dim-input" step="any" autocomplete="off">
+          <span class="bed-control bed-dim-sep" id="bedDimSep">×</span>
+          <input type="number" id="bedHeightInput" class="bed-control bed-dim-input" step="any" autocomplete="off">
         </span>
-        <span class="toolbar-group bed-control" style="display:none;">
+        <span class="toolbar-group bed-control">
           <label style="font-size:0.8rem; color:var(--text-secondary);">Margin:</label>
           <input type="number" id="autoPlaceMarginInput" class="bed-dim-input" style="width:50px;" value="2" min="0" step="any" autocomplete="off">
           <button class="btn btn-mode" id="autoPlaceBtn">Auto Place</button>

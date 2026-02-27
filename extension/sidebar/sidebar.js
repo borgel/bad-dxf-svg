@@ -31,7 +31,7 @@ let baseViewBox = null;
 let baseBounds = null;
 
 // Bed/tray
-let bedEnabled = false;
+let bedEnabled = true;
 let bedWidth = 495.3;
 let bedHeight = 279.4;
 let autoPlaceMargin = 2;
@@ -105,6 +105,10 @@ const bedWidthInput = document.getElementById('bedWidthInput');
 const bedHeightInput = document.getElementById('bedHeightInput');
 const autoPlaceBtn = document.getElementById('autoPlaceBtn');
 const autoPlaceMarginInput = document.getElementById('autoPlaceMarginInput');
+
+// Initialize bed dimension inputs (bed defaults to ON)
+bedWidthInput.value = bedWidth;
+bedHeightInput.value = bedHeight;
 
 // ============================================
 // Undo/Redo
