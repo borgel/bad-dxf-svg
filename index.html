@@ -1072,7 +1072,7 @@
                 const { minX, minY, maxX, maxY } = bounds;
                 const width = maxX - minX;
                 const height = maxY - minY;
-                const padding = Math.max(width, height) * 0.02;
+                const padding = forExport ? 0 : Math.max(width, height) * 0.02;
 
                 let groupsContent = '';
                 for (const group of groups) {
