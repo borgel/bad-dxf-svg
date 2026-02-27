@@ -794,6 +794,78 @@ test('SPLINE has endpoints from control points', () => {
     assertApprox(pts[1].x, 10, 0.001);
 });
 
+// --- Export Dimension Accuracy ---
+
+console.log('\n--- Export Dimension Accuracy ---');
+
+test('Export SVG has no viewBox padding (dimensions match geometry exactly)', () => {
+    const parser = new DxfParser();
+    const parsed = parser.parse(simpleDxf);
+    const gen = new SvgGenerator();
+    const groups = [makeGroup(0, 'test', parsed.entities)];
+    const svg = gen.generateCompositeSvg(groups, new Map(), 1, true);
+
+    const viewBoxMatch = svg.match(/viewBox="([^"]+)"/);
+    const widthMatch = svg.match(/width="([\d.]+)mm"/);
+    const heightMatch = svg.match(/height="([\d.]+)mm"/);
+
+    const vbParts = viewBoxMatch[1].split(' ').map(Number);
+    const vbW = vbParts[2];
+    const vbH = vbParts[3];
+    const physW = parseFloat(widthMatch[1]);
+    const physH = parseFloat(heightMatch[1]);
+
+    // viewBox dimensions should exactly match physical dimensions (scale=1)
+    assertApprox(vbW, physW, 0.001, 'viewBox width should match physical width');
+    assertApprox(vbH, physH, 0.001, 'viewBox height should match physical height');
+});
+
+test('Preview SVG has viewBox padding (for visual breathing room)', () => {
+    const parser = new DxfParser();
+    const parsed = parser.parse(simpleDxf);
+    const gen = new SvgGenerator();
+    const groups = [makeGroup(0, 'test', parsed.entities)];
+    const svg = gen.generateCompositeSvg(groups, new Map(), 1, false);
+
+    const bounds = gen.calculateCompositeBounds(groups);
+    const width = bounds.maxX - bounds.minX;
+    const height = bounds.maxY - bounds.minY;
+
+    const viewBoxMatch = svg.match(/viewBox="([^"]+)"/);
+    const vbParts = viewBoxMatch[1].split(' ').map(Number);
+    const vbW = vbParts[2];
+
+    assert(vbW > width, 'Preview viewBox should be wider than geometry (has padding)');
+});
+
+test('1in-cir.dxf exported as SVG with inch scale produces exactly 25.4mm circle', () => {
+    const circleDxfPath = path.join(__dirname, '1in-cir.dxf');
+    if (!fs.existsSync(circleDxfPath)) {
+        console.log('    Skipped (1in-cir.dxf not found)');
+        return;
+    }
+    const dxfContent = fs.readFileSync(circleDxfPath, 'utf8');
+    const parser = new DxfParser();
+    const parsed = parser.parse(dxfContent);
+    const gen = new SvgGenerator();
+    const groups = [makeGroup(0, '1in-cir', parsed.entities)];
+    const scale = 25.4; // inches to mm
+    const svg = gen.generateCompositeSvg(groups, new Map(), scale, true);
+
+    const viewBoxMatch = svg.match(/viewBox="([^"]+)"/);
+    const widthMatch = svg.match(/width="([\d.]+)mm"/);
+
+    const vbParts = viewBoxMatch[1].split(' ').map(Number);
+    const physW = parseFloat(widthMatch[1]);
+
+    const circle = parsed.entities.find(e => e.type === 'CIRCLE');
+    const circleDiam = circle.radius * 2;
+    const scaleFactor = physW / vbParts[2];
+    const physicalDiamMm = circleDiam * scaleFactor;
+
+    assertApprox(physicalDiamMm, 25.4, 0.01, 'Physical circle diameter should be 25.4mm (1 inch)');
+});
+
 // --- Multi-group Workflow ---
 
 console.log('\n--- Multi-group Workflow ---');
