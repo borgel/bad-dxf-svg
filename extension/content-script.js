@@ -66,6 +66,16 @@
   let sidebarVisible = false;
   const SIDEBAR_WIDTH = 420;
 
+  // Check if Glowforge page is in a usable state
+  function isGfReady() {
+    // Page must have a body and not be a login/error page
+    if (!document.body) return false;
+    // Check for common login indicators
+    const loginForm = document.querySelector('form[action*="login"], [class*="login"], [class*="Login"]');
+    if (loginForm) return false;
+    return true;
+  }
+
   function createSidebar() {
     sidebarFrame = document.createElement('iframe');
     sidebarFrame.id = 'dxf-glowforge-sidebar';
@@ -91,6 +101,18 @@
     if (!sidebarFrame) createSidebar();
     sidebarFrame.style.transform = 'translateX(0)';
     sidebarVisible = true;
+
+    // Notify sidebar of GF readiness state
+    setTimeout(() => {
+      if (sidebarFrame && sidebarFrame.contentWindow) {
+        sidebarFrame.contentWindow.postMessage({
+          source: 'dxf-glowforge-content',
+          action: 'gf-status',
+          ready: isGfReady(),
+          url: window.location.href
+        }, '*');
+      }
+    }, 500);
   }
 
   function hideSidebar() {

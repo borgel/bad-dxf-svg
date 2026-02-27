@@ -1061,6 +1061,12 @@ window.addEventListener('message', (event) => {
             showStatus(event.data.message, 'error');
         }
     }
+
+    if (event.data.action === 'gf-status') {
+        if (!event.data.ready) {
+            showStatus('Glowforge app not detected. Upload may not work — use Download SVG instead.', 'error');
+        }
+    }
 });
 
 // ============================================
