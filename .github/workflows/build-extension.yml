@@ -3,6 +3,7 @@ name: Build Extension
 on:
   push:
     branches: [main, chrome-extension]
+    tags: ['v*']
   pull_request:
     branches: [main]
 
