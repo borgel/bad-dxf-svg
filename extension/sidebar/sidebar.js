@@ -1284,7 +1284,7 @@ function mirrorSelection(axis) {
         }
     });
 
-    let totalAdded = 0;
+    let totalMirrored = 0;
 
     for (const [groupId, indices] of selectedByGroup) {
         const group = findGroupById(groupId);
@@ -1301,14 +1301,16 @@ function mirrorSelection(axis) {
             y: (bounds.minY + bounds.maxY) / 2 - group.offsetY
         };
 
-        // Create mirrored copies
+        // Mirror and replace originals in-place
         const mirrored = mirrorEntities(selectedEntities, axis, center);
-        group.entities.push(...mirrored);
-        totalAdded += mirrored.length;
+        for (let i = 0; i < indices.length; i++) {
+            group.entities[indices[i]] = mirrored[i];
+        }
+        totalMirrored += mirrored.length;
     }
 
     rebuildCanvas(false, true);
-    showStatus(`Mirrored ${totalAdded} element(s) ${axis === 'horizontal' ? 'horizontally' : 'vertically'}.`, 'success');
+    showStatus(`Mirrored ${totalMirrored} element(s) ${axis === 'horizontal' ? 'horizontally' : 'vertically'}.`, 'success');
 }
 
 // ============================================
