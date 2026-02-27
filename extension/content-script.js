@@ -4,6 +4,10 @@
 (function() {
   'use strict';
 
+  // Guard against double-injection
+  if (window.__dxfGfContentScriptLoaded) return;
+  window.__dxfGfContentScriptLoaded = true;
+
   // === Glowforge selector registry (from glowforge-bridge.js) ===
   const GF_SELECTORS = {
     fileInput: [
