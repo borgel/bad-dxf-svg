@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "DXF to Glowforge",
+  "version": "0.1.0",
+  "description": "DXF to SVG converter sidebar for Glowforge laser cutter",
+  "permissions": ["activeTab"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://app.glowforge.com/*"],
+      "js": ["content-script.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["sidebar/*", "lib/*"],
+      "matches": ["https://app.glowforge.com/*"]
+    }
+  ],
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "Toggle DXF Sidebar"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

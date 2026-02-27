@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DXF to Glowforge</title>
+  <link rel="stylesheet" href="sidebar.css">
+</head>
+<body>
+  <div class="sidebar-container">
+    <h1>DXF to Glowforge</h1>
+    <p class="subtitle">Drop DXF files to convert and send to Glowforge</p>
+
+    <div class="dropzone" id="dropzone">
+      <p class="dropzone-text">
+        <strong>Drop DXF files here</strong><br>
+        or click to browse
+      </p>
+      <input type="file" id="fileInput" accept=".dxf" multiple>
+    </div>
+
+    <div class="status" id="status"></div>
+
+    <div class="preview-container" id="previewContainer">
+      <div class="preview-header">
+        <span class="preview-title">Preview</span>
+        <span class="preview-header-units">
+          <label for="unitSelect">Units:</label>
+          <select id="unitSelect">
+            <option value="auto">Auto</option>
+            <option value="mm">mm</option>
+            <option value="in">Inches</option>
+          </select>
+        </span>
+        <span class="dimensions" id="dimensions"></span>
+      </div>
+
+      <div class="file-list" id="fileList">
+        <div class="file-list-header">
+          <span>Files:</span>
+          <button class="btn btn-file-action" id="groupSelectedBtn" style="display:none;">Group</button>
+          <button class="btn btn-file-action" id="clearAllBtn">Clear All</button>
+        </div>
+        <div class="file-list-items" id="fileListItems"></div>
+      </div>
+
+      <div class="mode-toolbar">
+        <span class="toolbar-group">
+          <button class="btn btn-mode" id="undoBtn" disabled title="Undo (Ctrl+Z)">Undo</button>
+          <button class="btn btn-mode" id="redoBtn" disabled title="Redo (Ctrl+Shift+Z)">Redo</button>
+        </span>
+        <span class="toolbar-group">
+          <button class="btn btn-mode" id="moveModeBtn">Move: OFF</button>
+          <button class="btn btn-mode active" id="snapToggleBtn">Snap: ON</button>
+          <button class="btn btn-mode" id="resetViewBtn">Reset View</button>
+        </span>
+      </div>
+      <div class="mode-toolbar">
+        <span class="toolbar-group">
+          <button class="btn btn-mode" id="bedToggleBtn">Bed: OFF</button>
+          <select id="bedPresetSelect" class="bed-control" style="display:none;">
+            <option value="glowforge">GF (19.5″×11″)</option>
+            <option value="custom">Custom</option>
+          </select>
+          <input type="number" id="bedWidthInput" class="bed-control bed-dim-input" style="display:none;" step="any" autocomplete="off">
+          <span class="bed-control bed-dim-sep" id="bedDimSep" style="display:none;">×</span>
+          <input type="number" id="bedHeightInput" class="bed-control bed-dim-input" style="display:none;" step="any" autocomplete="off">
+        </span>
+        <span class="toolbar-group bed-control" style="display:none;">
+          <label style="font-size:0.8rem; color:var(--text-secondary);">Margin:</label>
+          <input type="number" id="autoPlaceMarginInput" class="bed-dim-input" style="width:50px;" value="2" min="0" step="any" autocomplete="off">
+          <button class="btn btn-mode" id="autoPlaceBtn">Auto Place</button>
+        </span>
+      </div>
+      <div class="mode-toolbar">
+        <span class="toolbar-group">
+          <button class="btn btn-mode" id="removeDuplicatesBtn">Find Overlaps</button>
+          <button class="btn btn-mode" id="removeOverlapsBtn" style="display:none">Remove Overlaps</button>
+          <select id="dupToleranceSelect" title="Duplicate detection tolerance">
+            <option value="0.01">±0.01</option>
+            <option value="0.1" selected>±0.1</option>
+            <option value="0.5">±0.5</option>
+            <option value="1">±1.0</option>
+            <option value="5">±5.0</option>
+          </select>
+        </span>
+        <span class="toolbar-group toolbar-group-borderless toolbar-help-group">
+          <button class="btn btn-mode btn-help-tooltip" id="helpTooltipBtn" type="button">?</button>
+          <span class="help-tooltip-text">Click to select, double-click for chain, drag to box-select, Shift to add. Scroll to zoom, Ctrl+drag to pan. Move Mode to drag groups. Delete key to remove.</span>
+        </span>
+      </div>
+
+      <div class="preview-area" id="previewArea"></div>
+
+      <div class="color-toolbar" id="colorToolbar">
+        <span class="color-toolbar-label">Color:</span>
+        <div class="color-swatches" id="colorSwatches">
+          <div class="color-swatch" data-color="#000000" style="background: #000000;" title="Black"></div>
+          <div class="color-swatch" data-color="#FF0000" style="background: #FF0000;" title="Red"></div>
+          <div class="color-swatch" data-color="#00FF00" style="background: #00FF00;" title="Green"></div>
+          <div class="color-swatch" data-color="#0000FF" style="background: #0000FF;" title="Blue"></div>
+          <div class="color-swatch" data-color="#FF00FF" style="background: #FF00FF;" title="Magenta"></div>
+          <div class="color-swatch" data-color="#00FFFF" style="background: #00FFFF;" title="Cyan"></div>
+          <div class="color-swatch" data-color="#FFA500" style="background: #FFA500;" title="Orange"></div>
+          <div class="color-swatch" data-color="#800080" style="background: #800080;" title="Purple"></div>
+          <input type="color" class="custom-color-input" id="customColor" value="#000000" title="Custom color">
+        </div>
+        <span class="selection-info" id="selectionInfo">0 selected</span>
+        <button class="btn btn-danger" id="deleteSelectionBtn">Delete</button>
+        <button class="btn btn-clear-selection" id="clearSelectionBtn">Clear Sel.</button>
+      </div>
+
+      <div class="export-bar">
+        <button class="btn btn-send" id="sendToGfBtn" disabled>Send to Glowforge</button>
+        <button class="btn btn-primary" id="downloadBtn" disabled>Download SVG</button>
+        <button class="btn btn-primary" id="downloadDxfBtn" disabled>Download DXF</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="sidebar.js"></script>
+</body>
+</html>
