@@ -634,3 +634,39 @@ select {
 .toolbar-help-group:focus-within .help-tooltip-text {
     display: block;
 }
+
+/* Draw mode cursor */
+.preview-area.draw-mode {
+    cursor: crosshair;
+}
+
+/* Text dialog */
+.text-dialog {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    padding: 8px 10px;
+    background: var(--surface);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    margin-top: 6px;
+    flex-wrap: wrap;
+    font-size: 0.8rem;
+}
+
+.text-dialog label {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: var(--text-secondary);
+}
+
+.text-dialog input[type="text"],
+.text-dialog input[type="number"] {
+    padding: 3px 6px;
+    border: 1px solid var(--border-input);
+    border-radius: 3px;
+    font-size: 0.8rem;
+    background: var(--surface);
+    color: var(--text);
+}

@@ -90,7 +90,32 @@
         </span>
       </div>
 
+      <div class="mode-toolbar">
+        <span class="toolbar-group">
+          <span style="font-size:0.8rem; color:var(--text-secondary); margin-right:2px;">Draw:</span>
+          <button class="btn btn-mode" id="drawLineBtn" title="Draw Line">Line</button>
+          <button class="btn btn-mode" id="drawRectBtn" title="Draw Rectangle">Rect</button>
+          <button class="btn btn-mode" id="drawCircleBtn" title="Draw Circle">Circle</button>
+          <button class="btn btn-mode" id="drawTextBtn" title="Add Text">Text</button>
+        </span>
+        <span class="toolbar-group">
+          <span style="font-size:0.8rem; color:var(--text-secondary); margin-right:2px;">Mirror:</span>
+          <button class="btn btn-mode" id="mirrorHBtn" title="Mirror Horizontal">H</button>
+          <button class="btn btn-mode" id="mirrorVBtn" title="Mirror Vertical">V</button>
+        </span>
+      </div>
+
       <div class="preview-area" id="previewArea"></div>
+
+      <!-- Text creation dialog (hidden by default) -->
+      <div class="text-dialog" id="textDialog" style="display:none;">
+        <label>Text: <input type="text" id="textDialogInput" value="Hello" style="width:140px;"></label>
+        <label>Size: <input type="number" id="textDialogSize" value="10" min="1" step="1" style="width:50px;"></label>
+        <label><input type="radio" name="textFont" value="stroke" checked> Stroke</label>
+        <label><input type="radio" name="textFont" value="outline"> Outline</label>
+        <button class="btn btn-mode" id="textDialogOk">Add</button>
+        <button class="btn btn-mode" id="textDialogCancel">Cancel</button>
+      </div>
 
       <div class="color-toolbar" id="colorToolbar">
         <span class="color-toolbar-label">Color:</span>

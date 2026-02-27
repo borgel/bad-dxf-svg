@@ -7,6 +7,8 @@ import { DxfWriter } from '../lib/dxf-writer.js';
 import { getEntityEndpoints, pointsAreClose, applyOffsetToEntities, entitiesAreDuplicates } from '../lib/geometry-utils.js';
 import { maxRectsPack, rectsOverlap, rectContains } from '../lib/packing.js';
 import { rotateEntities, computeRotatedBounds } from '../lib/rotation.js';
+import { mirrorEntities } from '../lib/transforms.js';
+import { textToEntities } from '../lib/hershey-font.js';
 
 // ============================================
 // State
@@ -60,6 +62,11 @@ const SNAP_TOLERANCE = 5.0;
 const CONNECTION_TOLERANCE = 0.5;
 let duplicateTolerance = 0.1;
 let pendingOverlapRemovals = null;
+
+// Draw mode state
+let drawMode = null; // null | 'line' | 'rect' | 'circle' | 'text'
+let drawStartPoint = null; // {x, y} in DXF coords
+let drawPreviewEl = null;
 
 // Element interaction map
 let elementMap = new Map();
@@ -1057,6 +1064,244 @@ window.addEventListener('message', (event) => {
 });
 
 // ============================================
+// Shape Creation
+// ============================================
+
+function getOrCreateShapesGroup() {
+    // If a group is selected in move mode, use that; otherwise find/create "Shapes"
+    if (selectedGroupId !== null) {
+        const g = findGroupById(selectedGroupId);
+        if (g) return g;
+    }
+    let shapesGroup = importedGroups.find(g => g.filename === 'Shapes');
+    if (!shapesGroup) {
+        shapesGroup = {
+            id: groupIdCounter++,
+            filename: 'Shapes',
+            entities: [],
+            offsetX: 0,
+            offsetY: 0
+        };
+        importedGroups.push(shapesGroup);
+    }
+    return shapesGroup;
+}
+
+function screenToSvgCoords(clientX, clientY) {
+    const svg = previewArea.querySelector('svg');
+    if (!svg || !baseViewBox) return null;
+
+    const rect = svg.getBoundingClientRect();
+    const w = baseViewBox.w / viewZoom;
+    const h = baseViewBox.h / viewZoom;
+
+    const vbLeft = viewCenterX - w / 2;
+    const vbTop = viewCenterY - h / 2;
+
+    const svgX = vbLeft + ((clientX - rect.left) / rect.width) * w;
+    const svgY = vbTop + ((clientY - rect.top) / rect.height) * h;
+
+    // SVG uses scale(1, -1), so DXF Y = -svgY
+    return { x: svgX, y: -svgY };
+}
+
+function enterDrawMode(mode) {
+    // Exit any current draw mode first
+    exitDrawMode();
+
+    if (moveMode) {
+        // Turn off move mode
+        moveMode = false;
+        moveModeBtn.textContent = 'Move: OFF';
+        moveModeBtn.classList.remove('active');
+        previewArea.classList.remove('move-mode');
+    }
+
+    drawMode = mode;
+    previewArea.classList.add('draw-mode');
+
+    // Highlight the active draw button
+    document.getElementById('drawLineBtn').classList.toggle('active', mode === 'line');
+    document.getElementById('drawRectBtn').classList.toggle('active', mode === 'rect');
+    document.getElementById('drawCircleBtn').classList.toggle('active', mode === 'circle');
+    document.getElementById('drawTextBtn').classList.toggle('active', mode === 'text');
+
+    if (mode === 'text') {
+        document.getElementById('textDialog').style.display = 'flex';
+    }
+}
+
+function exitDrawMode() {
+    drawMode = null;
+    drawStartPoint = null;
+    previewArea.classList.remove('draw-mode');
+
+    document.getElementById('drawLineBtn').classList.remove('active');
+    document.getElementById('drawRectBtn').classList.remove('active');
+    document.getElementById('drawCircleBtn').classList.remove('active');
+    document.getElementById('drawTextBtn').classList.remove('active');
+    document.getElementById('textDialog').style.display = 'none';
+
+    // Remove any preview element
+    if (drawPreviewEl) {
+        drawPreviewEl.remove();
+        drawPreviewEl = null;
+    }
+}
+
+function addShapeEntities(entities) {
+    if (entities.length === 0) return;
+    saveUndoState();
+    const group = getOrCreateShapesGroup();
+    group.entities.push(...entities);
+    rebuildCanvas(false);
+    showStatus(`Added ${entities.length} element(s).`, 'success');
+}
+
+function handleDrawClick(e) {
+    if (!drawMode) return false;
+
+    const pt = screenToSvgCoords(e.clientX, e.clientY);
+    if (!pt) return false;
+
+    // Subtract the shapes group offset to get local coords
+    const group = getOrCreateShapesGroup();
+    const localX = pt.x - group.offsetX;
+    const localY = pt.y - group.offsetY;
+
+    if (drawMode === 'line') {
+        if (!drawStartPoint) {
+            drawStartPoint = { x: localX, y: localY };
+            showStatus('Click end point for line.', 'info');
+        } else {
+            addShapeEntities([{
+                type: 'LINE',
+                start: { x: drawStartPoint.x, y: drawStartPoint.y },
+                end: { x: localX, y: localY }
+            }]);
+            drawStartPoint = null;
+        }
+        return true;
+    }
+
+    if (drawMode === 'rect') {
+        if (!drawStartPoint) {
+            drawStartPoint = { x: localX, y: localY };
+            showStatus('Click opposite corner for rectangle.', 'info');
+        } else {
+            const x1 = drawStartPoint.x, y1 = drawStartPoint.y;
+            const x2 = localX, y2 = localY;
+            addShapeEntities([
+                { type: 'LINE', start: {x:x1,y:y1}, end: {x:x2,y:y1} },
+                { type: 'LINE', start: {x:x2,y:y1}, end: {x:x2,y:y2} },
+                { type: 'LINE', start: {x:x2,y:y2}, end: {x:x1,y:y2} },
+                { type: 'LINE', start: {x:x1,y:y2}, end: {x:x1,y:y1} },
+            ]);
+            drawStartPoint = null;
+        }
+        return true;
+    }
+
+    if (drawMode === 'circle') {
+        if (!drawStartPoint) {
+            drawStartPoint = { x: localX, y: localY };
+            showStatus('Click to set radius.', 'info');
+        } else {
+            const dx = localX - drawStartPoint.x;
+            const dy = localY - drawStartPoint.y;
+            const radius = Math.sqrt(dx * dx + dy * dy);
+            if (radius > 0.01) {
+                addShapeEntities([{
+                    type: 'CIRCLE',
+                    center: { x: drawStartPoint.x, y: drawStartPoint.y },
+                    radius: radius
+                }]);
+            }
+            drawStartPoint = null;
+        }
+        return true;
+    }
+
+    if (drawMode === 'text') {
+        // Text placement click - use dialog values
+        const text = document.getElementById('textDialogInput').value;
+        const size = parseFloat(document.getElementById('textDialogSize').value) || 10;
+        const fontType = document.querySelector('input[name="textFont"]:checked')?.value || 'stroke';
+
+        if (!text) {
+            showStatus('Enter text first.', 'error');
+            return true;
+        }
+
+        if (fontType === 'stroke') {
+            const entities = textToEntities(text, localX, localY, size);
+            addShapeEntities(entities);
+        } else {
+            // Outline mode: convert to paths using canvas measureText approach
+            // For now, fall back to stroke font with a note
+            const entities = textToEntities(text, localX, localY, size);
+            addShapeEntities(entities);
+            showStatus('Outline font not yet implemented; used stroke font.', 'info');
+        }
+
+        exitDrawMode();
+        return true;
+    }
+
+    return false;
+}
+
+// ============================================
+// Mirror Operations
+// ============================================
+
+function mirrorSelection(axis) {
+    if (selectedElements.size === 0) {
+        showStatus('Select elements first, then mirror.', 'error');
+        return;
+    }
+
+    saveUndoState();
+
+    // Collect selected entities by group
+    const selectedByGroup = new Map();
+    selectedElements.forEach(el => {
+        const groupId = findGroupIdFromElement(el);
+        const entityIdx = parseInt(el.dataset.elementId);
+        if (groupId !== null && !isNaN(entityIdx)) {
+            if (!selectedByGroup.has(groupId)) selectedByGroup.set(groupId, []);
+            selectedByGroup.get(groupId).push(entityIdx);
+        }
+    });
+
+    let totalAdded = 0;
+
+    for (const [groupId, indices] of selectedByGroup) {
+        const group = findGroupById(groupId);
+        if (!group) continue;
+
+        // Get the selected entities
+        const selectedEntities = indices.map(i => group.entities[i]);
+
+        // Calculate center of selected entities
+        const gen = new SvgGenerator();
+        const bounds = gen.calculateBoundsForEntities(selectedEntities, group.offsetX, group.offsetY);
+        const center = {
+            x: (bounds.minX + bounds.maxX) / 2 - group.offsetX,
+            y: (bounds.minY + bounds.maxY) / 2 - group.offsetY
+        };
+
+        // Create mirrored copies
+        const mirrored = mirrorEntities(selectedEntities, axis, center);
+        group.entities.push(...mirrored);
+        totalAdded += mirrored.length;
+    }
+
+    rebuildCanvas(false, true);
+    showStatus(`Mirrored ${totalAdded} element(s) ${axis === 'horizontal' ? 'horizontally' : 'vertically'}.`, 'success');
+}
+
+// ============================================
 // Event Handlers
 // ============================================
 
@@ -1089,6 +1334,14 @@ function handleWheel(e) {
 }
 
 function handleMouseDown(e) {
+    // Draw mode click handling
+    if (drawMode && e.button === 0 && !e.ctrlKey) {
+        if (handleDrawClick(e)) {
+            e.preventDefault();
+            return;
+        }
+    }
+
     // Middle button or Ctrl+left → pan
     if (e.button === 1 || (e.button === 0 && e.ctrlKey)) {
         isPanning = true;
@@ -1585,4 +1838,39 @@ document.addEventListener('keydown', handleKeyDown);
 // Prevent context menu on middle-click
 previewArea.addEventListener('contextmenu', function(e) {
     if (e.button === 1) e.preventDefault();
+});
+
+// Draw mode buttons
+document.getElementById('drawLineBtn').addEventListener('click', () => {
+    drawMode === 'line' ? exitDrawMode() : enterDrawMode('line');
+});
+document.getElementById('drawRectBtn').addEventListener('click', () => {
+    drawMode === 'rect' ? exitDrawMode() : enterDrawMode('rect');
+});
+document.getElementById('drawCircleBtn').addEventListener('click', () => {
+    drawMode === 'circle' ? exitDrawMode() : enterDrawMode('circle');
+});
+document.getElementById('drawTextBtn').addEventListener('click', () => {
+    drawMode === 'text' ? exitDrawMode() : enterDrawMode('text');
+});
+
+// Text dialog
+document.getElementById('textDialogOk').addEventListener('click', () => {
+    // Switch to text placement mode (click to place)
+    showStatus('Click on the preview to place text.', 'info');
+});
+document.getElementById('textDialogCancel').addEventListener('click', () => {
+    exitDrawMode();
+});
+
+// Mirror buttons
+document.getElementById('mirrorHBtn').addEventListener('click', () => mirrorSelection('horizontal'));
+document.getElementById('mirrorVBtn').addEventListener('click', () => mirrorSelection('vertical'));
+
+// Escape key exits draw mode
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && drawMode) {
+        exitDrawMode();
+        e.preventDefault();
+    }
 });
