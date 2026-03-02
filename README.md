@@ -1,13 +1,13 @@
 # DXF to SVG Converter for Laser Cutting
 
-A single-file webapp that converts DXF files to SVG format optimized for Glowforge and other laser cutters.
+A webapp and Chrome extension that converts DXF files to SVG format optimized for Glowforge and other laser cutters.
 
 **Try it now:** [borgel.github.io/bad-dxf-svg](https://borgel.github.io/bad-dxf-svg/)
 
 ## Features
 
 - **Drag & drop upload** — drop one or more DXF files, or click to browse
-- **Multi-file compositing** — combine parts from multiple DXF files into a single layout; group and ungroup files
+- **Multi-file compositing** — combine parts from multiple DXF files into a single layout; group, ungroup, and split selections into new groups
 - **Auto-detect units** — automatically determines if your file is in mm or inches based on geometry size
 - **Manual unit override** — force mm or inches if auto-detection isn't right
 - **Live preview** — see your converted design before downloading
@@ -48,8 +48,28 @@ A single-file webapp that converts DXF files to SVG format optimized for Glowfor
 6. Click "Download SVG" or "Download DXF"
 7. Import into Glowforge or your laser cutter software
 
+## Chrome Extension
+
+A Chrome extension is included that adds a DXF converter sidebar directly on the Glowforge app page. It is not yet published to the Chrome Web Store, but you can load it manually for local use.
+
+### Installing via Developer Mode
+
+1. Open Chrome and navigate to `chrome://extensions`
+2. Enable **Developer mode** (toggle in the top-right corner)
+3. Click **Load unpacked**
+4. Select the `extension/` directory from this repository
+5. The "DXF to Glowforge" extension icon will appear in your toolbar
+
+### Using the Extension
+
+1. Navigate to [app.glowforge.com](https://app.glowforge.com/)
+2. Click the extension icon in the toolbar to open the DXF converter sidebar
+3. Drop DXF files into the sidebar, arrange and color parts as usual
+4. Use "Send to Glowforge" to upload into the workspace, or download and import manually
+
 ## Technical Details
 
-- Single HTML file with embedded CSS and JavaScript — no external dependencies
+- The webapp is a single HTML file with embedded CSS and JavaScript — no external dependencies
+- The Chrome extension shares the same converter core as standalone modules
 - No build step required
 - Works entirely in the browser, no server needed
