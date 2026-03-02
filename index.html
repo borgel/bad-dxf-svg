@@ -802,10 +802,18 @@
             <strong>Supported DXF entities:</strong> LINE, CIRCLE, ELLIPSE, ARC, LWPOLYLINE, POLYLINE, SPLINE<br>
             <strong>Note:</strong> TEXT and DIMENSION entities are not supported. Convert text to paths in your CAD software before exporting.<br>
             <a href="https://github.com/borgel/bad-dxf-svg" style="color: #007bff;">View source on GitHub</a>
+            <span style="float: right; color: var(--text-faint); font-size: 0.8rem;" id="versionLabel"></span>
         </div>
     </div>
 
     <script>
+        // Version stamped at release (update with: sed -i '' "s/APP_VERSION = '.*'/APP_VERSION = 'vX.Y.Z'/" index.html)
+        const APP_VERSION = 'v3.0.0';
+        if (typeof document !== 'undefined') {
+            const _vl = document.getElementById('versionLabel');
+            if (_vl) _vl.textContent = APP_VERSION;
+        }
+
         // ============================================
         // Inline DXF Parser - No external dependencies
         // ============================================
