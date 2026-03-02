@@ -382,6 +382,25 @@
             background: var(--surface-hover);
         }
 
+        .btn-split-group {
+            padding: 6px 12px;
+            font-size: 0.85rem;
+            background: #007bff;
+            color: #fff;
+            border: 1px solid #0069d9;
+        }
+
+        .btn-split-group:hover {
+            background: #0056b3;
+        }
+
+        .btn-split-group:disabled {
+            background: #6c757d;
+            border-color: #6c757d;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
         /* SVG element selection styles */
         .preview-area svg .selectable {
             cursor: pointer;
@@ -736,6 +755,7 @@
                     <input type="color" class="custom-color-input" id="customColor" value="#000000" title="Custom color">
                 </div>
                 <span class="selection-info" id="selectionInfo">0 selected</span>
+                <button class="btn btn-split-group" id="splitToGroupBtn" disabled>Move to New Group</button>
                 <button class="btn btn-danger" id="deleteSelectionBtn">Delete Selected</button>
                 <button class="btn btn-clear-selection" id="clearSelectionBtn">Clear Selection</button>
             </div>
@@ -1508,6 +1528,7 @@ ${groupsContent}  </g>
         const selectionInfo = document.getElementById('selectionInfo');
         const clearSelectionBtn = document.getElementById('clearSelectionBtn');
         const deleteSelectionBtn = document.getElementById('deleteSelectionBtn');
+        const splitToGroupBtn = document.getElementById('splitToGroupBtn');
         const fileListItems = document.getElementById('fileListItems');
         const clearAllBtn = document.getElementById('clearAllBtn');
         const groupSelectedBtn = document.getElementById('groupSelectedBtn');
@@ -2296,6 +2317,7 @@ ${groupsContent}  </g>
             const count = selectedElements.size;
             selectionInfo.textContent = count === 0 ? '0 selected' :
                 count === 1 ? '1 element selected' : `${count} elements selected`;
+            splitToGroupBtn.disabled = (count === 0);
         }
 
         function applyColorToSelection(color) {
@@ -2560,6 +2582,114 @@ ${groupsContent}  </g>
 
             rebuildCanvas(false, true);
             showStatus(`Deleted ${deletedCount} element(s).`, 'success');
+        }
+
+        function splitSelectionToNewGroup() {
+            if (selectedElements.size === 0) return;
+            saveUndoState();
+
+            // Collect selected entity indices per group: groupId -> Set of entityIndex
+            const toSplit = new Map();
+
+            selectedElements.forEach(el => {
+                const groupId = findGroupIdFromElement(el);
+                const elementId = parseInt(el.dataset.elementId);
+                if (groupId !== null && !isNaN(elementId)) {
+                    if (!toSplit.has(groupId)) {
+                        toSplit.set(groupId, new Set());
+                    }
+                    toSplit.get(groupId).add(elementId);
+                }
+            });
+
+            let splitCount = 0;
+            const newGroups = [];
+
+            for (const [groupId, entityIndices] of toSplit) {
+                const group = findGroupById(groupId);
+                if (!group) continue;
+
+                const sortedIndices = Array.from(entityIndices).sort((a, b) => a - b);
+
+                // Deep-clone selected entities for the new group
+                const extractedEntities = sortedIndices.map(idx =>
+                    JSON.parse(JSON.stringify(group.entities[idx]))
+                );
+
+                // Build index mappings for color override remapping
+                // New group: old index -> new sequential index
+                const extractedIndexMap = new Map();
+                sortedIndices.forEach((oldIdx, newIdx) => {
+                    extractedIndexMap.set(oldIdx, newIdx);
+                });
+
+                // Remaining entities: old index -> new index after splicing
+                const remainingIndices = [];
+                for (let i = 0; i < group.entities.length; i++) {
+                    if (!entityIndices.has(i)) remainingIndices.push(i);
+                }
+                const remainingIndexMap = new Map();
+                remainingIndices.forEach((oldIdx, newIdx) => {
+                    remainingIndexMap.set(oldIdx, newIdx);
+                });
+
+                // Remap color overrides for both groups
+                const newGroupId = groupIdCounter++;
+                const overridesToSet = [];
+
+                for (const [key, value] of colorOverrides) {
+                    if (key.startsWith(`${groupId}-`)) {
+                        const oldIdx = parseInt(key.split('-')[1]);
+                        if (extractedIndexMap.has(oldIdx)) {
+                            // Move to new group
+                            overridesToSet.push([`${newGroupId}-${extractedIndexMap.get(oldIdx)}`, value]);
+                        } else if (remainingIndexMap.has(oldIdx)) {
+                            // Remap within source group
+                            overridesToSet.push([`${groupId}-${remainingIndexMap.get(oldIdx)}`, value]);
+                        }
+                    }
+                }
+
+                // Clear old overrides for this group
+                for (const [key] of colorOverrides) {
+                    if (key.startsWith(`${groupId}-`)) {
+                        colorOverrides.delete(key);
+                    }
+                }
+
+                // Apply remapped overrides
+                for (const [k, v] of overridesToSet) {
+                    colorOverrides.set(k, v);
+                }
+
+                // Remove selected entities from source group (reverse order to preserve indices)
+                const reverseSorted = Array.from(entityIndices).sort((a, b) => b - a);
+                for (const idx of reverseSorted) {
+                    group.entities.splice(idx, 1);
+                }
+
+                // Invalidate sub-group metadata
+                delete group.subGroups;
+
+                splitCount += extractedEntities.length;
+
+                newGroups.push({
+                    id: newGroupId,
+                    filename: group.filename + ' (split)',
+                    entities: extractedEntities,
+                    offsetX: group.offsetX,
+                    offsetY: group.offsetY
+                });
+            }
+
+            // Remove empty source groups
+            importedGroups = importedGroups.filter(g => g.entities.length > 0);
+
+            // Add new groups
+            importedGroups.push(...newGroups);
+
+            rebuildCanvas(false, true);
+            showStatus(`Moved ${splitCount} element(s) to new group.`, 'success');
         }
 
         function findOverlaps() {
@@ -3232,6 +3362,7 @@ ${groupsContent}  </g>
 
         clearSelectionBtn.addEventListener('click', clearSelection);
         deleteSelectionBtn.addEventListener('click', deleteSelection);
+        splitToGroupBtn.addEventListener('click', splitSelectionToNewGroup);
 
         // File list actions (event delegation)
         document.getElementById('fileList').addEventListener('click', function(e) {
