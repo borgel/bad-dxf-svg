@@ -123,17 +123,27 @@ export class DxfParser {
                 entity.closed = (parseInt(groupValues[70]?.[0] || 0) & 1) === 1;
 
                 if (type === 'LWPOLYLINE') {
-                    const xVals = groupValues[10] || [];
-                    const yVals = groupValues[20] || [];
-                    const bulges = groupValues[42] || [];
-
-                    for (let j = 0; j < xVals.length; j++) {
-                        entity.vertices.push({
-                            x: parseFloat(xVals[j]),
-                            y: parseFloat(yVals[j]),
-                            bulge: parseFloat(bulges[j] || 0)
-                        });
+                    // Walk raw DXF pairs to associate bulge (42) with
+                    // the correct vertex.  Bulge only appears after
+                    // vertices that have arcs, so indexing into a flat
+                    // array of all code-42 values mis-assigns them.
+                    let currentVertex = null;
+                    let k = startIndex;
+                    while (k < lines.length) {
+                        const code = parseInt(lines[k].trim(), 10);
+                        const value = lines[k + 1] ? lines[k + 1].trim() : '';
+                        if (code === 0) break;
+                        if (code === 10) {
+                            if (currentVertex) entity.vertices.push(currentVertex);
+                            currentVertex = { x: parseFloat(value), y: 0, bulge: 0 };
+                        } else if (code === 20 && currentVertex) {
+                            currentVertex.y = parseFloat(value);
+                        } else if (code === 42 && currentVertex) {
+                            currentVertex.bulge = parseFloat(value);
+                        }
+                        k += 2;
                     }
+                    if (currentVertex) entity.vertices.push(currentVertex);
                 }
                 break;
 
