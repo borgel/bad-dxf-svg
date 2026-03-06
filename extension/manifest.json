@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DXF to Glowforge",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "description": "DXF to SVG converter sidebar for Glowforge laser cutter",
   "permissions": ["activeTab", "scripting"],
   "background": {
