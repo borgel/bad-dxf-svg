@@ -101,9 +101,65 @@
     document.body.appendChild(sidebarFrame);
   }
 
+  // Injected style + observer to push page content aside for the sidebar
+  let sidebarStyleEl = null;
+  let fixedElObserver = null;
+  const PUSHED_ATTR = 'data-dxf-pushed';
+
+  function injectPageStyle() {
+    if (sidebarStyleEl) return;
+    sidebarStyleEl = document.createElement('style');
+    sidebarStyleEl.id = 'dxf-sidebar-page-push';
+    sidebarStyleEl.textContent = `
+      html, body {
+        margin-right: ${SIDEBAR_WIDTH}px !important;
+        overflow-x: hidden !important;
+        transition: margin-right 0.2s ease !important;
+      }
+    `;
+    document.head.appendChild(sidebarStyleEl);
+
+    // Find and nudge all fixed-position elements
+    nudgeFixedElements();
+    // Watch for dynamically added elements (toasts, notifications)
+    fixedElObserver = new MutationObserver(nudgeFixedElements);
+    fixedElObserver.observe(document.body, { childList: true, subtree: true });
+  }
+
+  function nudgeFixedElements() {
+    document.querySelectorAll('body *:not(#dxf-glowforge-sidebar)').forEach(el => {
+      if (getComputedStyle(el).position === 'fixed' && !el.hasAttribute(PUSHED_ATTR)) {
+        const cs = getComputedStyle(el);
+        // Shrink elements that span full width or are anchored to the right
+        if (cs.right === '0px' || cs.width === window.innerWidth + 'px' ||
+            el.offsetWidth > window.innerWidth - SIDEBAR_WIDTH) {
+          el.setAttribute(PUSHED_ATTR, el.style.marginRight || '');
+          el.style.marginRight = SIDEBAR_WIDTH + 'px';
+        }
+      }
+    });
+  }
+
+  function removePageStyle() {
+    if (fixedElObserver) {
+      fixedElObserver.disconnect();
+      fixedElObserver = null;
+    }
+    // Restore any elements we nudged
+    document.querySelectorAll(`[${PUSHED_ATTR}]`).forEach(el => {
+      el.style.marginRight = el.getAttribute(PUSHED_ATTR);
+      el.removeAttribute(PUSHED_ATTR);
+    });
+    if (sidebarStyleEl) {
+      sidebarStyleEl.remove();
+      sidebarStyleEl = null;
+    }
+  }
+
   function showSidebar() {
     if (!sidebarFrame) createSidebar();
     sidebarFrame.style.transform = 'translateX(0)';
+    injectPageStyle();
     sidebarVisible = true;
 
     // Notify sidebar of GF readiness state
@@ -123,6 +179,7 @@
     if (sidebarFrame) {
       sidebarFrame.style.transform = 'translateX(100%)';
     }
+    removePageStyle();
     sidebarVisible = false;
   }
 
